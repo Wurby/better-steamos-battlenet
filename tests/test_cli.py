@@ -464,8 +464,8 @@ class RealCompositing(unittest.TestCase):
                 self.assertEqual(probe, f"{w},{h}")
 
 
-class LauncherWrapper(Base):
-    """Every game runs through run-game.sh; --login only for games that sign in via the launcher."""
+class LauncherShortcuts(Base):
+    """Games that sign in through the launcher get a shortcut that opens the launcher on them."""
 
     def setUp(self):
         super().setUp()
@@ -475,43 +475,58 @@ class LauncherWrapper(Base):
             "exe": "_classic_era_/WoWClassic.exe",
             "args": "-launcherlogin -uid {uid} -initialgamemode=cera"}}})
         self.script = self.env.work / "run-game.sh"
+        logs = self.fs.prefix / "pfx/drive_c/users/steamuser/AppData/Local/Battle.net/Logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        (logs / "battle.net-20260101T000000.log").write_bytes(
+            b"D x [GameController] {Main} Selecting game family by id: WoWC\r\n"
+            b"I x [GameLaunchController] {Main} LaunchBinary: uid=wow_classic_era selectedRegion=US\r\n")
 
     def opts(self, name):
         return self.by_name()[name]["LaunchOptions"]
 
-    def test_every_game_is_wrapped_and_only_login_games_get_the_login_flag(self):
+    def test_login_games_open_the_launcher_on_their_family_and_other_games_run_directly(self):
         cli.cmd_sync(self.env, args())
-        self.assertIn(f'"{self.script}" --login %command% -launcherlogin -uid wow_classic_era',
-                      self.opts("WoW Classic Era"))
-        w2 = self.opts("Warcraft II Battle.net Edition")
-        self.assertIn(f'"{self.script}" %command% -uid w2', w2)
-        self.assertNotIn("--login", w2)
-        self.assertTrue(self.script.exists())
+        wow = self.by_name()["WoW Classic Era"]
+        self.assertTrue(wow["exe"].strip('"').endswith("Battle.net.exe"))
+        self.assertTrue(wow["LaunchOptions"].endswith('%command% --exec="launch WoWC"'))
+        w2 = self.by_name()["Warcraft II Battle.net Edition"]
+        self.assertTrue(w2["exe"].strip('"').endswith("Warcraft II BNE.exe"))
+        self.assertTrue(w2["LaunchOptions"].endswith("%command% -uid w2"))
+
+    def test_every_shortcut_runs_through_the_wrapper(self):
+        cli.cmd_sync(self.env, args())
+        for name in ("WoW Classic Era", "Warcraft II Battle.net Edition"):
+            self.assertIn(f'"{self.script}" %command%', self.opts(name))
         self.assertTrue(os.access(self.script, os.X_OK))
 
-    def test_existing_shortcut_gains_the_login_flag_in_place_when_the_real_command_is_learned(self):
+    def test_an_unknown_family_falls_back_to_the_product_code(self):
+        (self.fs.prefix / "pfx/drive_c/users/steamuser/AppData/Local/Battle.net/Logs/"
+         "battle.net-20260101T000000.log").unlink()
+        cli.cmd_sync(self.env, args())
+        self.assertTrue(self.opts("WoW Classic Era").endswith('--exec="launch wow_classic_era"'))
+
+    def test_existing_shortcut_switches_to_the_launcher_in_place_keeping_its_appid(self):
         learned = cli.load_state(self.env)["learned"]
         cli.save_state(self.env, {"learned": {}})          # at first the start command is a guess
         cli.cmd_sync(self.env, args())
         before = self.by_name()["WoW Classic Era"]
-        self.assertNotIn("--login", before["LaunchOptions"])
+        self.assertTrue(before["exe"].strip('"').endswith("WowClassic.exe"))
         state = cli.load_state(self.env)
         state["learned"] = learned                          # now the real command is known
         cli.save_state(self.env, state)
         cli.cmd_sync(self.env, args())
         after = self.by_name()["WoW Classic Era"]
-        self.assertIn("--login", after["LaunchOptions"])
+        self.assertTrue(after["exe"].strip('"').endswith("Battle.net.exe"))
         self.assertEqual(after["appid"], before["appid"])
 
-    def test_launcher_fallback_shortcuts_are_not_wrapped(self):
+    def test_games_without_a_usable_exe_also_open_the_launcher(self):
         self.fs.add_game("ng", "ng", "New Game", "New Game", "CrashReporter.exe")   # only a helper exe
         agg = self.fs.prefix / "pfx" / bn.AGGREGATE_REL
         data = json.loads(agg.read_text())
         data["installed"][-1]["icon_path"] = ""
         agg.write_text(json.dumps(data))
         cli.cmd_sync(self.env, args())
-        self.assertNotIn("run-game", self.opts("New Game"))
-        self.assertIn('--exec="launch ng"', self.opts("New Game"))
+        self.assertTrue(self.opts("New Game").endswith('%command% --exec="launch ng"'))
 
     def test_dry_run_does_not_write_the_script(self):
         cli.cmd_sync(self.env, args(dry_run=True))

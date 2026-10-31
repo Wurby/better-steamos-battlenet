@@ -84,16 +84,22 @@ class GuidedSync(unittest.TestCase):
     def entry(self):
         return next(e for e in self.fs.shortcuts().values() if e["appname"] == "Diablo IV")
 
-    def test_interactive_run_learns_and_the_shortcut_uses_the_real_command(self):
+    def test_interactive_run_learns_the_real_command(self):
         g = {**D4, "icon_path": ""}
         w = self.run_sync(True, hit=(g, "Diablo IV.exe", "-nostreamline -sso -launch -uid fenris"),
                           yes=False)
         w.assert_called_once()
-        self.assertTrue(self.entry()["exe"].strip('"').endswith("Diablo IV.exe"))
-        self.assertTrue(self.entry()["LaunchOptions"].endswith(
-            "%command% -nostreamline -sso -launch -uid fenris"))
         self.assertEqual(cli.load_state(self.env)["learned"]["fenris"]["args"],
                          "-nostreamline -sso -launch -uid {uid}")
+        # `-sso` means only the launcher can start it, so the shortcut opens the launcher on it
+        self.assertTrue(self.entry()["exe"].strip('"').endswith("Battle.net.exe"))
+        self.assertTrue(self.entry()["LaunchOptions"].endswith('%command% --exec="launch fenris"'))
+
+    def test_a_learned_game_that_does_not_need_the_launcher_runs_directly(self):
+        g = {**D4, "icon_path": ""}
+        self.run_sync(True, hit=(g, "Diablo IV.exe", "-launch -uid fenris"), yes=False)
+        self.assertTrue(self.entry()["exe"].strip('"').endswith("Diablo IV.exe"))
+        self.assertTrue(self.entry()["LaunchOptions"].endswith("%command% -launch -uid fenris"))
 
     def test_user_skipping_falls_back_to_the_guess_but_still_picks_the_real_exe(self):
         self.run_sync(True, hit=None, yes=False)

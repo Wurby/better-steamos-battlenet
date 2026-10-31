@@ -76,6 +76,38 @@ def art_codes(code):
     return ["_".join(parts[:i]) for i in range(len(parts), 0, -1)]
 
 
+# flags in a game's start command that mean "log in through the launcher": such a game only works
+# when the launcher itself starts it (it hands the game a one-time BDK_LAUNCH_GUID)
+LAUNCHER_LOGIN_FLAGS = ("-launcherlogin", "-sso")
+
+
+def signs_in_via_launcher(args):
+    return any(t in LAUNCHER_LOGIN_FLAGS for t in args.split())
+
+
+def launcher_families(prefix):
+    """{uid: family id} read from the launcher's own logs, e.g. {'wow_classic_era': 'WoWC'}.
+    The launcher selects games by family id; it logs `Selecting game family by id: X` and then
+    `LaunchBinary: uid=Y` whenever the user presses Play, so any game played once is known."""
+    logs = prefix / "pfx/drive_c/users/steamuser/AppData/Local/Battle.net/Logs"
+    out = {}
+    for f in sorted(logs.glob("battle.net-*.log")):
+        family = None
+        try:
+            lines = f.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            m = re.search(r"Selecting game family by id: (\S+)", line)
+            if m:
+                family = m.group(1)
+                continue
+            m = re.search(r"LaunchBinary: uid=(\S+)", line)
+            if m and family:
+                out[m.group(1)] = family
+    return out
+
+
 def launcher_exe(prefix):
     return prefix / "pfx" / LAUNCHER_REL
 

@@ -169,6 +169,46 @@ class LearnedSpecCase(unittest.TestCase):
         self.assertEqual(args, "-launcherlogin -uid wow_classic_era -initialgamemode=cera")
 
 
+class LauncherLogin(unittest.TestCase):
+    def test_flags_that_mean_the_launcher_must_start_the_game(self):
+        self.assertTrue(bn.signs_in_via_launcher("-launcherlogin -uid wow_classic_era -initialgamemode=cera"))
+        self.assertTrue(bn.signs_in_via_launcher("-nostreamline -sso -launch -uid fenris"))
+        self.assertFalse(bn.signs_in_via_launcher("-launch -uid s1"))
+        self.assertFalse(bn.signs_in_via_launcher("-uid w2"))
+        self.assertFalse(bn.signs_in_via_launcher(""))
+
+    def test_family_ids_come_from_what_the_launcher_logged_on_play(self):
+        fs = FakeSteam()
+        self.addCleanup(fs.cleanup)
+        logs = fs.prefix / "pfx/drive_c/users/steamuser/AppData/Local/Battle.net/Logs"
+        logs.mkdir(parents=True)
+        (logs / "battle.net-20260101T000000.log").write_bytes(
+            b"D x [GameController] {Main} Selecting game family by id: WoWC\r\n"
+            b"I x [GameLaunchController] {Main} LaunchBinary: uid=wow_classic_era selectedRegion=US\r\n"
+            b"D x [GameController] {Main} Selecting game family by id: Pro\r\n"       # browsed, not played
+            b"D x [GameController] {Main} Selecting game family by id: Fen\r\n"
+            b"I x [GameLaunchController] {Main} LaunchBinary: uid=fenris selectedRegion=US\r\n")
+        (logs / "battle.net-20260102T000000.log").write_bytes(
+            b"D x [GameController] {Main} Selecting game family by id: S1\r\n"
+            b"I x [GameLaunchController] {Main} LaunchBinary: uid=s1 selectedRegion=US\r\n")
+        self.assertEqual(bn.launcher_families(fs.prefix),
+                         {"wow_classic_era": "WoWC", "fenris": "Fen", "s1": "S1"})
+
+    def test_a_launch_with_no_preceding_selection_is_not_mapped_to_nothing(self):
+        fs = FakeSteam()
+        self.addCleanup(fs.cleanup)
+        logs = fs.prefix / "pfx/drive_c/users/steamuser/AppData/Local/Battle.net/Logs"
+        logs.mkdir(parents=True)
+        (logs / "battle.net-20260101T000000.log").write_bytes(
+            b"I x [GameLaunchController] {Main} LaunchBinary: uid=mystery selectedRegion=US\r\n")
+        self.assertEqual(bn.launcher_families(fs.prefix), {})
+
+    def test_no_logs_means_no_families(self):
+        fs = FakeSteam()
+        self.addCleanup(fs.cleanup)
+        self.assertEqual(bn.launcher_families(fs.prefix), {})
+
+
 class BestExe(unittest.TestCase):
     def setUp(self):
         self._t = tempfile.TemporaryDirectory()

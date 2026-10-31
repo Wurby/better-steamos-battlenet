@@ -16,11 +16,9 @@
 - [ ] CI that runs the unit tests
 
 - [ ] Create art inside the write session, after the user confirms (currently before)
-- [ ] **Decide how to handle login games (WoW Classic Era, Diablo IV).** They only work when the
-      launcher itself starts them. Options: (a) shortcut opens the launcher on the game and the user
-      presses Play (needs the family id, e.g. `WoWC`, which `learn` could read from the launcher
-      log); (b) automate the Play click (fragile); (c) do not create shortcuts for them. Until
-      then `sync` still makes a `--login` shortcut that does not work
+- [ ] Confirm the launcher-opening shortcut for WoW Classic Era looks right and that pressing Play
+      works (the owner chose "open the launcher; press Play" for login games)
+- [ ] Optional: automate the Play click for login games (fragile)
 - [ ] Confirm an open launcher no longer blocks a plain game shortcut (StarCraft)
 - [ ] Let the user mark a game as needing / not needing the launcher (currently inferred from
       `-launcherlogin` / `-sso`)

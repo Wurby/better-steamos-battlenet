@@ -154,24 +154,23 @@ def cmd_sync(env, args):
         if icon and not launcher.get("icon"):       # never replace an icon the user chose
             print(f"  UPDATE Battle.net launcher icon appid={launcher['appid']} (kept)")
             updates.append((launcher["appid"], {"icon": icon}))
+    families = bn.launcher_families(prefix)
     for g in games:
         spec = bn.launch_spec(prefix, g, state)
-        if spec:    # run the game exe itself so Steam tracks the real process
+        via_launcher = spec is None or bn.signs_in_via_launcher(spec[1])
+        if not via_launcher:    # run the game exe itself so Steam tracks the real process
             exe_p, gargs, source = spec
             exe, start = f'"{exe_p}"', str(exe_p.parent) + "/"
-        else:       # no usable exe: ask the launcher to open the game
-            exe, start, source = launcher["exe"], launcher["StartDir"], "launcher fallback"
-            gargs = f'--exec="launch {g["code"]}"'
-        via = None
-        if spec:
-            # every game runs through the wrapper, which stops a running launcher from blocking
-            # it; games that sign in through the launcher also have it started and logged in
-            via = f'"{env.work / wrapper.SCRIPT_NAME}"'
-            if wrapper.needs_launcher(gargs):
-                via += " --login"
-                source += ", starts the launcher first"
-            if not args.dry_run:
-                wrapper.ensure(env)
+        else:
+            # No usable exe, or a game that only works when the launcher starts it (it hands the
+            # game a one-time token): open the launcher on the game and let the user press Play.
+            exe, start = launcher["exe"], launcher["StartDir"]
+            gargs = f'--exec="launch {families.get(g["uid"]) or g["code"]}"'
+            source = "opens the launcher; press Play" if spec else "launcher fallback"
+        # every shortcut runs through the wrapper so an open launcher cannot block it
+        via = f'"{env.work / wrapper.SCRIPT_NAME}"'
+        if not args.dry_run:
+            wrapper.ensure(env)
         opts = bn.launch_options(prefix, logdir, gargs, via)
         new_id = steam.shortcut_appid(exe, g["name"])
         cur = existing.get(mine.get(g["uid"], new_id))

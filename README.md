@@ -81,18 +81,21 @@ with which one it used.
 
 ## Games that sign in through the launcher
 World of Warcraft Classic Era and Diablo IV (their start commands contain `-launcherlogin` /
-`-sso`) **cannot yet be started from a Steam shortcut**. When the launcher starts such a game
-it mints a one-time token (`BDK_LAUNCH_GUID`) and hands it to the game, which uses it to sign
-in. A game started any other way, even with the launcher open and logged in, falls back to its
-own login and the server answers with an extra verification challenge ("unable to connect").
-Nothing we tried makes the launcher press Play for you (`--exec="launch ..."` and `battlenet://`
-links only select the game). Start these games from the Battle.net launcher. Games that do not
-use these flags (StarCraft, Warcraft II) start fine from their shortcuts.
+`-sso`) cannot be started by a shortcut directly. When the launcher starts such a game it mints
+a one-time token (`BDK_LAUNCH_GUID`) and hands it to the game, which uses it to sign in. A game
+started any other way, even with the launcher open and logged in, falls back to its own login
+and the server answers with an extra verification challenge ("unable to connect"). Nothing we
+tried makes the launcher press Play for you (`--exec="launch ..."` and `battlenet://` links only
+select the game).
+
+So for these games the shortcut **opens the Battle.net launcher on that game** (using the
+launcher's own game id, read from its logs), and you press Play. Games without those flags
+(StarCraft, Warcraft II) start straight from their shortcuts.
 
 ## The run-game.sh wrapper
-Every game shortcut runs through `run-game.sh`. Proton's `waitforexitandrun` verb (which Steam
-uses) first waits for every Wine process in the prefix to exit, so an open launcher would stop a
-game from ever starting; when a launcher is running the wrapper uses Proton's `run` verb instead.
+Every shortcut runs through `run-game.sh`. Proton's `waitforexitandrun` verb (which Steam uses)
+first waits for every Wine process in the prefix to exit, so an open launcher would stop a game
+from ever starting; when a launcher is running the wrapper uses Proton's `run` verb instead.
 With no launcher running it adds about 20 ms and changes nothing. Its log is
 `~/.local/share/bnet-steam/logs/run-game.log`.
 
@@ -113,9 +116,8 @@ is never replaced, so you can pick better art on steamgriddb.com and it will sti
   Check each game's support status yourself.
 - Battle.net lists new games lazily, so a just-installed game may show a rough name and
   parent-product art until the next `sync` after Battle.net catches up (names then update in place).
-- Games that sign in through the launcher (see above) do not work from a shortcut yet.
-- The wrapper's verb swap ran inside Steam for WoW, but an open launcher plus a plain game
-  (StarCraft) has not been tried by hand.
+- Games that sign in through the launcher (see above) need you to press Play in the launcher.
+- An open launcher plus a plain game shortcut (StarCraft) has not been tried by hand.
 
 ## Development
 ```sh

@@ -17,7 +17,7 @@ bnet_steam/
   art.py        default library art via ffmpeg; launcher icon
   learn.py      watch the launcher's Play button to record a game's real start command
   pe_icon.py    pull an exe's main icon out of its PE resources (pure Python)
-  wrapper.py    run-game.sh: the launch-option wrapper every game shortcut runs through
+  wrapper.py    run-game.sh: the launch-option wrapper every shortcut runs through (verb swap)
   cli.py        commands and argument parsing
 tests/          unittest suite; helpers.py builds a fake Steam + Battle.net prefix
 ```
@@ -93,7 +93,7 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
   (`steam-launch-wrapper -- reaper SteamLaunch ... -- _v2-entry-point ... proton waitforexitandrun
   exe`), so a wrapper runs on the host, outside Steam's runtime container, and anything it
   starts (e.g. a launcher via `proton run`) runs there too; that launcher's window rendered
-  broken. Steam's environment also has `LD_PRELOAD` of a 32-bit overlay library, which makes every
+  broken (the launcher started by Steam's own runtime for a shortcut does not). Steam's environment also has `LD_PRELOAD` of a 32-bit overlay library, which makes every
   spawned process slower and noisy: the first wrapper forked per process and took ~20 s per game
   start. Keep wrapper scripts to a handful of spawns.
 - Battle.net's own log (`AppData/Local/Battle.net/Logs/battle.net-*.log`, CRLF line endings)
@@ -101,8 +101,13 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
 - `proton run taskkill /F /IM Battle.net.exe` closes the launcher cleanly.
 - Run against the real launcher with a stand-in game, `run-game.sh --login` started the launcher,
   saw Ready after 7 s, swapped the verb, ran the game and closed the launcher (11 s total). That
-  mechanism works but does not make login games work (see above); `--login` is kept only until
-  the owner decides how login games should be handled.
+  mechanism works but does not make login games work (see above), so the `--login` mode was removed.
+- Games whose start command signs in through the launcher get a shortcut that runs the launcher
+  (like the Battle.net shortcut) with `--exec="launch <family id>"`; family ids (`WoWC`, `Fen`,
+  `W2`, `S1`) are read from `Selecting game family by id: X` / `LaunchBinary: uid=Y` pairs in the
+  launcher's logs, so a game played once is known. Started from Steam this way the launcher
+  reached `Ready` in ~5 s, selected `WoWC`, and logged no rendering errors; that the window
+  looks right and Play then works was not confirmed by us.
 - Launch args cannot be derived from install metadata, so `sync` guides the user through
   pressing Play once for any game it can only guess at.
 - The Battle.net logo is a 256x256 PNG-compressed icon inside `Battle.net.exe`.
