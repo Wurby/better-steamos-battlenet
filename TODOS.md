@@ -16,8 +16,9 @@
 - [ ] CI that runs the unit tests
 
 - [ ] Create art inside the write session, after the user confirms (currently before)
-- [ ] Confirm the launcher-opening shortcut for WoW Classic Era looks right and that pressing Play
-      works (the owner chose "open the launcher; press Play" for login games)
+- [ ] Confirm pressing Play on a login game (WoW Classic Era) from the launcher's handheld tab works
+      (the shortcut opens the launcher, which renders normally; Play itself is untested here)
+- [ ] Is there any way to open the launcher on a game's page instead of the handheld tab?
 - [ ] Optional: automate the Play click for login games (fragile)
 - [ ] Confirm an open launcher no longer blocks a plain game shortcut (StarCraft)
 - [ ] Let the user mark a game as needing / not needing the launcher (currently inferred from

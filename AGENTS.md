@@ -102,6 +102,11 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
 - Run against the real launcher with a stand-in game, `run-game.sh --login` started the launcher,
   saw Ready after 7 s, swapped the verb, ran the game and closed the launcher (11 s total). That
   mechanism works but does not make login games work (see above), so the `--login` mode was removed.
+- Confirmed by the owner on SteamOS: StarCraft starts from its shortcut with the launcher open
+  (the wrapper logged the verb swap), and the launcher started by a shortcut renders normally.
+  It opens on its "handheld" games tab (its log: `Handheld Detected ... Baseboard Manufacturer:
+  Valve`; no setting found), so `--exec="launch <family>"` selects the game but does not bring
+  its page to the front.
 - Games whose start command signs in through the launcher get a shortcut that runs the launcher
   (like the Battle.net shortcut) with `--exec="launch <family id>"`; family ids (`WoWC`, `Fen`,
   `W2`, `S1`) are read from `Selecting game family by id: X` / `LaunchBinary: uid=Y` pairs in the

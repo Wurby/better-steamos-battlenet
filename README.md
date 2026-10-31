@@ -117,7 +117,8 @@ is never replaced, so you can pick better art on steamgriddb.com and it will sti
 - Battle.net lists new games lazily, so a just-installed game may show a rough name and
   parent-product art until the next `sync` after Battle.net catches up (names then update in place).
 - Games that sign in through the launcher (see above) need you to press Play in the launcher.
-- An open launcher plus a plain game shortcut (StarCraft) has not been tried by hand.
+  On Valve hardware the launcher detects a "handheld" device and opens on its handheld games tab,
+  so you may need to pick the game there; we found no setting to change that.
 
 ## Development
 ```sh
