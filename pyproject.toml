@@ -11,6 +11,10 @@ requires-python = ">=3.9"
 license = { text = "MIT" }
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/Wurby/better-steamos-battlenet"
+Issues = "https://github.com/Wurby/better-steamos-battlenet/issues"
+
 [project.scripts]
 bnet-steam = "bnet_steam.cli:main"
 

@@ -1,5 +1,7 @@
 # bnet-steam
 
+_Repository: [better-steamos-battlenet](https://github.com/Wurby/better-steamos-battlenet). The Python package and command are `bnet_steam` / `bnet-steam`._
+
 Add **Battle.net** and each Battle.net game you install to Steam as separate
 non-Steam shortcuts on Linux / SteamOS, running under Proton.
 
@@ -28,7 +30,7 @@ non-Steam shortcuts on Linux / SteamOS, running under Proton.
 
 ## Quick start
 ```sh
-git clone <this repo> && cd bnet-steam
+git clone https://github.com/Wurby/better-steamos-battlenet.git && cd better-steamos-battlenet
 python3 -m bnet_steam status            # see what was detected
 python3 -m bnet_steam install           # adds the installer shortcut
 # start "Battle.net" from Steam, run the installer, sign in, then:
