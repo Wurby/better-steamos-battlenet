@@ -18,8 +18,9 @@
 - [ ] Create art inside the write session, after the user confirms (currently before)
 - [ ] Confirm pressing Play on a login game (WoW Classic Era) from the launcher's handheld tab works
       (the shortcut opens the launcher, which renders normally; Play itself is untested here)
-- [ ] Confirm, on screen, that the launcher shortcuts show the normal (non-handheld) UI and list
-      WoW Classic Era (the launcher logs `Handheld Detected: F`; the window itself is unchecked)
+- [x] Handheld fix confirmed on screen by the owner: the launcher opens on its normal Home page
+- [ ] The launcher opens on Home, so `--exec="launch <family>"` selects the game but does not
+      navigate to its page; find a way to land on the game, or accept one extra click
 - [ ] Test the handheld fix on non-Valve hardware (it should be a no-op there)
 - [ ] Optional: automate the Play click for login games (fragile)
 - [ ] Confirm an open launcher no longer blocks a plain game shortcut (StarCraft)

@@ -115,6 +115,8 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
   shortcut through `run-game.sh --launcher-fix` -> `cmd.exe /c C:\bnet-steam\launcher.bat`, the
   launcher logged `Handheld Detected: F`, reached Ready, and logged no rendering errors.
   Do not claim to be a real vendor's hardware; the launcher reports board details in telemetry.
+  Confirmed on screen by the owner: the launcher then opens on its normal Home page (and
+  `--exec="launch <family>"` does not navigate to the game's page).
 - `run-game.sh --launcher-fix` rewrites the launcher exe argument in the Steam command into
   `cmd.exe /c C:\bnet-steam\launcher.bat <args>`, so shortcuts keep pointing at `Battle.net.exe`
   (our detection of the launcher shortcut depends on that) and Steam's runtime chain is untouched.

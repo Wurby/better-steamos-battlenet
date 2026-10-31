@@ -130,6 +130,8 @@ is never replaced, so you can pick better art on steamgriddb.com and it will sti
   parent-product art until the next `sync` after Battle.net catches up (names then update in place).
 - Games that sign in through the launcher (see above) need you to press Play in the launcher.
 - The handheld fix changes the hardware identity the launcher sees (see above).
+- The launcher opens on its Home page; shortcuts that open it select the game but you still pick
+  it from your library.
 
 ## Development
 ```sh
