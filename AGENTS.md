@@ -78,16 +78,31 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
   the Battle.net launcher open in the same prefix the game would never start. Seen directly:
   the wrapper prototype hung for 200 s until killed. `run-game.sh` swaps the verb to `run` when a
   launcher is up.
-- Games that start with `-launcherlogin` (WoW Classic Era) or `-sso` (Diablo IV) ask the running,
-  logged-in launcher for the session. WoW started from its shortcut with no launcher running
-  reached the login screen and could not connect; its client logs showed `Glue Fatal Error` /
-  `Front disconnected`, and the Proton log showed no `Battle.net.exe` in the session. That the
-  launcher is the missing piece is the best explanation, not yet proven.
+- Games that start with `-launcherlogin` (WoW Classic Era) or `-sso` (Diablo IV) cannot be started
+  by us. When the launcher starts a game its log shows `LaunchBinary` then `Setting launch env var
+  BDK_LAUNCH_GUID to <fresh GUID>` plus account launch options; the game presents that GUID to
+  prove the launch. Started directly (launcher closed, or open and logged in with the wrapper
+  having started it) WoW sends an SSO login and the server replies `BattleNet External Challenge`
+  -> `Glue Fatal Error 2147483956` -> 'unable to connect, please log in again'. Ruled out: the
+  launcher merely running. The GUID is per launch; we cannot mint or replay it.
+- Nothing we tried makes the launcher press Play: `--exec="launch WoWC"`, `--exec="launch
+  wow_classic_era"` and `battlenet://WoWC` each only logged `Selecting game family by id: ...`
+  (never `LaunchBinary`). The launcher selects games by *family id* (`WoWC`, `S1`, `Pro`), which
+  only appears in cached server data and in the launcher log when the user presses Play.
+- `%command%` in a Steam launch option expands to the WHOLE launch chain
+  (`steam-launch-wrapper -- reaper SteamLaunch ... -- _v2-entry-point ... proton waitforexitandrun
+  exe`), so a wrapper runs on the host, outside Steam's runtime container, and anything it
+  starts (e.g. a launcher via `proton run`) runs there too; that launcher's window rendered
+  broken. Steam's environment also has `LD_PRELOAD` of a 32-bit overlay library, which makes every
+  spawned process slower and noisy: the first wrapper forked per process and took ~20 s per game
+  start. Keep wrapper scripts to a handful of spawns.
 - Battle.net's own log (`AppData/Local/Battle.net/Logs/battle.net-*.log`, CRLF line endings)
   records `GSStateTracker State changed to: Ready` once logged in and loaded (~7-15 s).
 - `proton run taskkill /F /IM Battle.net.exe` closes the launcher cleanly.
 - Run against the real launcher with a stand-in game, `run-game.sh --login` started the launcher,
-  saw Ready after 7 s, swapped the verb, ran the game and closed the launcher (11 s total).
+  saw Ready after 7 s, swapped the verb, ran the game and closed the launcher (11 s total). That
+  mechanism works but does not make login games work (see above); `--login` is kept only until
+  the owner decides how login games should be handled.
 - Launch args cannot be derived from install metadata, so `sync` guides the user through
   pressing Play once for any game it can only guess at.
 - The Battle.net logo is a 256x256 PNG-compressed icon inside `Battle.net.exe`.

@@ -16,8 +16,11 @@
 - [ ] CI that runs the unit tests
 
 - [ ] Create art inside the write session, after the user confirms (currently before)
-- [ ] Confirm `run-game.sh --login` works inside Steam: press Play on the WoW Classic Era shortcut
-      with the launcher closed, then with it open (check `logs/run-game.log`)
+- [ ] **Decide how to handle login games (WoW Classic Era, Diablo IV).** They only work when the
+      launcher itself starts them. Options: (a) shortcut opens the launcher on the game and the user
+      presses Play (needs the family id, e.g. `WoWC`, which `learn` could read from the launcher
+      log); (b) automate the Play click (fragile); (c) do not create shortcuts for them. Until
+      then `sync` still makes a `--login` shortcut that does not work
 - [ ] Confirm an open launcher no longer blocks a plain game shortcut (StarCraft)
 - [ ] Let the user mark a game as needing / not needing the launcher (currently inferred from
       `-launcherlogin` / `-sso`)

@@ -80,12 +80,21 @@ with no usable exe fall back to asking the launcher to open them. `sync` labels 
 with which one it used.
 
 ## Games that sign in through the launcher
-Some games (World of Warcraft, Diablo IV) ask the running, logged-in launcher for your session,
-so on their own they land on a login screen. Their shortcuts go through `run-game.sh --login`,
-which starts the launcher, waits until it reports it is logged in, runs the game, and closes a
-launcher it started. Every game shortcut also goes through `run-game.sh` so that an open
-launcher cannot block it (Proton's `waitforexitandrun` waits for the whole Wine prefix to go
-idle). Its log is `~/.local/share/bnet-steam/logs/run-game.log`.
+World of Warcraft Classic Era and Diablo IV (their start commands contain `-launcherlogin` /
+`-sso`) **cannot yet be started from a Steam shortcut**. When the launcher starts such a game
+it mints a one-time token (`BDK_LAUNCH_GUID`) and hands it to the game, which uses it to sign
+in. A game started any other way, even with the launcher open and logged in, falls back to its
+own login and the server answers with an extra verification challenge ("unable to connect").
+Nothing we tried makes the launcher press Play for you (`--exec="launch ..."` and `battlenet://`
+links only select the game). Start these games from the Battle.net launcher. Games that do not
+use these flags (StarCraft, Warcraft II) start fine from their shortcuts.
+
+## The run-game.sh wrapper
+Every game shortcut runs through `run-game.sh`. Proton's `waitforexitandrun` verb (which Steam
+uses) first waits for every Wine process in the prefix to exit, so an open launcher would stop a
+game from ever starting; when a launcher is running the wrapper uses Proton's `run` verb instead.
+With no launcher running it adds about 20 ms and changes nothing. Its log is
+`~/.local/share/bnet-steam/logs/run-game.log`.
 
 ## Artwork
 Blizzard only provides a square key-art tile and a small icon, so portrait, wide and hero
@@ -104,8 +113,9 @@ is never replaced, so you can pick better art on steamgriddb.com and it will sti
   Check each game's support status yourself.
 - Battle.net lists new games lazily, so a just-installed game may show a rough name and
   parent-product art until the next `sync` after Battle.net catches up (names then update in place).
-- The launcher-first wrapper is tested against the real launcher with a stand-in game and in
-  unit tests, but not yet confirmed with a real game launched from Steam.
+- Games that sign in through the launcher (see above) do not work from a shortcut yet.
+- The wrapper's verb swap ran inside Steam for WoW, but an open launcher plus a plain game
+  (StarCraft) has not been tried by hand.
 
 ## Development
 ```sh

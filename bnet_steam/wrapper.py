@@ -30,7 +30,7 @@ WORK=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$WORK/logs" 2>/dev/null
 LOG="$WORK/logs/run-game.log"
 [ -f "$LOG" ] && [ "$(stat -c %s "$LOG" 2>/dev/null || echo 0)" -gt 200000 ] && : >"$LOG"
-log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >>"$LOG" 2>/dev/null; }
+log() { printf '%(%F %T)T %s\n' -1 "$*" >>"$LOG" 2>/dev/null; }
 
 if [ -z "${STEAM_COMPAT_DATA_PATH:-}" ]; then
     log "STEAM_COMPAT_DATA_PATH is not set; running the game as is"
@@ -49,12 +49,9 @@ for a in "$@"; do case "$a" in */proton) PROTON="$a"; break ;; esac; done
 # A real launcher process: its command line STARTS with the Windows path. (A shell that merely
 # mentions "Battle.net.exe" somewhere in its arguments must not count.)
 launcher_running() {
-    local c
-    for c in "$PROC"/[0-9]*/cmdline; do
-        [ -r "$c" ] && tr '\0' ' ' <"$c" 2>/dev/null |
-            grep -aqi '^C:\\Program Files (x86)\\Battle\.net\\Battle\.net\.exe' && return 0
-    done
-    return 1
+    # one grep over every process (-z: argv elements are NUL-separated "lines"); forking per
+    # process is far too slow, especially under Steam's LD_PRELOAD
+    grep -aqiz '^C:\\Program Files (x86)\\Battle\.net\\Battle\.net\.exe' "$PROC"/[0-9]*/cmdline 2>/dev/null
 }
 
 # true when the newest launcher log (newer than file $1, if given) says it is logged in.
