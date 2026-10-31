@@ -108,6 +108,33 @@ def launcher_families(prefix):
     return out
 
 
+# The launcher decides it is on a handheld from the board manufacturer/product Wine reports (it
+# sees Valve hardware) and then shows a cut-down handheld UI that hides most games. Wine rebuilds
+# those registry values from the real hardware at every start, so we set generic ones for the
+# launcher's own session only, just before it starts. "To Be Filled By O.E.M." is the placeholder
+# many boards report when the maker set nothing, so we do not pretend to be anyone's hardware.
+LAUNCHER_SCRIPT_REL = "drive_c/bnet-steam/launcher.bat"
+LAUNCHER_SCRIPT_WIN = "C:\\bnet-steam\\launcher.bat"
+LAUNCHER_BAT = "\r\n".join([
+    "@echo off",
+    "rem Written by bnet-steam; rewritten by `bnet-steam sync`. Do not edit.",
+    "rem Report a generic board so Battle.net does not switch to its handheld UI.",
+    'reg add "HKLM\\Hardware\\Description\\System\\BIOS" /v BaseBoardManufacturer /t REG_SZ /d "To Be Filled By O.E.M." /f >nul',
+    'reg add "HKLM\\Hardware\\Description\\System\\BIOS" /v BaseBoardProduct /t REG_SZ /d "To Be Filled By O.E.M." /f >nul',
+    'start "" "C:\\Program Files (x86)\\Battle.net\\Battle.net.exe" %*',
+    "",
+])
+
+
+def ensure_launcher_script(prefix):
+    """Write (or refresh) the launcher batch file inside the prefix; returns its path."""
+    path = prefix / "pfx" / LAUNCHER_SCRIPT_REL
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists() or path.read_bytes() != LAUNCHER_BAT.encode():
+        path.write_bytes(LAUNCHER_BAT.encode())
+    return path
+
+
 def launcher_exe(prefix):
     return prefix / "pfx" / LAUNCHER_REL
 

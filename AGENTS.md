@@ -104,9 +104,20 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
   mechanism works but does not make login games work (see above), so the `--login` mode was removed.
 - Confirmed by the owner on SteamOS: StarCraft starts from its shortcut with the launcher open
   (the wrapper logged the verb swap), and the launcher started by a shortcut renders normally.
-  It opens on its "handheld" games tab (its log: `Handheld Detected ... Baseboard Manufacturer:
-  Valve`; no setting found), so `--exec="launch <family>"` selects the game but does not bring
-  its page to the front.
+  On Valve hardware it opened on a "handheld" games tab that hides games like WoW Classic Era (its
+  log: `Handheld Detected: T ... Baseboard Manufacturer: Valve`, user-agent `(retail;handheld)`).
+- Handheld mode: `--force-handheld` is a command-line switch that can only force it ON
+  (`=false` / `=0` still logged `Handheld Detected: T`). Detection reads the registry values
+  `HKLM\Hardware\Description\System\BIOS\BaseBoardManufacturer` and `BaseBoardProduct`, which Wine
+  rebuilds from SMBIOS at every wineserver start. Setting them (`reg add`) in the SAME Wine session
+  just before the launcher starts gave `Handheld Detected: F` and user-agent `(retail)`; verified
+  with real values (a real board name) and with "To Be Filled By O.E.M.". Started from a Steam
+  shortcut through `run-game.sh --launcher-fix` -> `cmd.exe /c C:\bnet-steam\launcher.bat`, the
+  launcher logged `Handheld Detected: F`, reached Ready, and logged no rendering errors.
+  Do not claim to be a real vendor's hardware; the launcher reports board details in telemetry.
+- `run-game.sh --launcher-fix` rewrites the launcher exe argument in the Steam command into
+  `cmd.exe /c C:\bnet-steam\launcher.bat <args>`, so shortcuts keep pointing at `Battle.net.exe`
+  (our detection of the launcher shortcut depends on that) and Steam's runtime chain is untouched.
 - Games whose start command signs in through the launcher get a shortcut that runs the launcher
   (like the Battle.net shortcut) with `--exec="launch <family id>"`; family ids (`WoWC`, `Fen`,
   `W2`, `S1`) are read from `Selecting game family by id: X` / `LaunchBinary: uid=Y` pairs in the

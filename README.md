@@ -92,8 +92,20 @@ So for these games the shortcut **opens the Battle.net launcher on that game** (
 launcher's own game id, read from its logs), and you press Play. Games without those flags
 (StarCraft, Warcraft II) start straight from their shortcuts.
 
+## The handheld UI
+On Valve hardware the launcher decides it is on a handheld (from the board manufacturer and
+product that Wine reports) and switches to a cut-down handheld UI whose Games tab hides most games.
+`--force-handheld` can only force that mode *on*, so instead the Battle.net shortcut (and the
+shortcuts that open the launcher) start it through a tiny batch file, `launcher.bat` in the Wine
+prefix, that sets those two registry values to "To Be Filled By O.E.M." (the placeholder many boards
+report) for that session only, just before the launcher starts. Wine rebuilds the real values at
+every start, so nothing persists, and your real hardware is untouched. The launcher (and its
+telemetry) will see a generic board instead of Valve hardware. Turn it off with
+`sync --no-handheld-fix`.
+
 ## The run-game.sh wrapper
-Every shortcut runs through `run-game.sh`. Proton's `waitforexitandrun` verb (which Steam uses)
+Every shortcut runs through `run-game.sh` (with `--launcher-fix` for the ones that start the
+launcher, see above). Proton's `waitforexitandrun` verb (which Steam uses)
 first waits for every Wine process in the prefix to exit, so an open launcher would stop a game
 from ever starting; when a launcher is running the wrapper uses Proton's `run` verb instead.
 With no launcher running it adds about 20 ms and changes nothing. Its log is
@@ -117,8 +129,7 @@ is never replaced, so you can pick better art on steamgriddb.com and it will sti
 - Battle.net lists new games lazily, so a just-installed game may show a rough name and
   parent-product art until the next `sync` after Battle.net catches up (names then update in place).
 - Games that sign in through the launcher (see above) need you to press Play in the launcher.
-  On Valve hardware the launcher detects a "handheld" device and opens on its handheld games tab,
-  so you may need to pick the game there; we found no setting to change that.
+- The handheld fix changes the hardware identity the launcher sees (see above).
 
 ## Development
 ```sh

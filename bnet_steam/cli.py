@@ -141,6 +141,9 @@ def cmd_sync(env, args):
     if args.proton_log is not None:
         state["proton_log"] = args.proton_log
     logdir = env.work / "logs" if state.get("proton_log") else None
+    if args.handheld_fix is not None:
+        state["handheld_fix"] = args.handheld_fix
+    fix = state.get("handheld_fix", True)           # start the launcher without its handheld UI
     tool = state.get("proton") or steam.pick_proton(env.root, args.proton)
     mine = state.setdefault("games", {})            # uid -> appid we created
     games = bn.installed_games(prefix)
@@ -154,6 +157,24 @@ def cmd_sync(env, args):
         if icon and not launcher.get("icon"):       # never replace an icon the user chose
             print(f"  UPDATE Battle.net launcher icon appid={launcher['appid']} (kept)")
             updates.append((launcher["appid"], {"icon": icon}))
+    wrapper_cmd = f'"{env.work / wrapper.SCRIPT_NAME}"'
+    launcher_wrapper = wrapper_cmd + (" --launcher-fix" if fix else "")
+    if not args.dry_run:
+        wrapper.ensure(env)
+        if fix:
+            bn.ensure_launcher_script(prefix)
+    # the Battle.net shortcut itself: run it through the wrapper too, but only if its launch
+    # options are still the ones we wrote (never overwrite options the user customised)
+    ours = {bn.launch_options(prefix), bn.launch_options(prefix, env.work / "logs")}
+    cur_opts = launcher.get("LaunchOptions", "")
+    want_opts = bn.launch_options(prefix, logdir, "", launcher_wrapper)
+    if cur_opts != want_opts:
+        if cur_opts in ours or wrapper.SCRIPT_NAME in cur_opts:
+            print(f"  UPDATE Battle.net launcher options appid={launcher['appid']} (kept)"
+                  f"{'' if fix else ' [handheld fix off]'}")
+            updates.append((launcher["appid"], {"LaunchOptions": want_opts}))
+        else:
+            print("  note   the Battle.net shortcut has custom launch options; leaving them alone")
     families = bn.launcher_families(prefix)
     for g in games:
         spec = bn.launch_spec(prefix, g, state)
@@ -167,10 +188,9 @@ def cmd_sync(env, args):
             exe, start = launcher["exe"], launcher["StartDir"]
             gargs = f'--exec="launch {families.get(g["uid"]) or g["code"]}"'
             source = "opens the launcher; press Play" if spec else "launcher fallback"
-        # every shortcut runs through the wrapper so an open launcher cannot block it
-        via = f'"{env.work / wrapper.SCRIPT_NAME}"'
-        if not args.dry_run:
-            wrapper.ensure(env)
+        # every shortcut runs through the wrapper so an open launcher cannot block it; one that
+        # starts the launcher also gets the handheld fix
+        via = launcher_wrapper if via_launcher else wrapper_cmd
         opts = bn.launch_options(prefix, logdir, gargs, via)
         new_id = steam.shortcut_appid(exe, g["name"])
         cur = existing.get(mine.get(g["uid"], new_id))
@@ -422,6 +442,9 @@ def build_parser():
                    help="walk through recording unverified games (default: when interactive)")
     p.add_argument("--proton-log", action=argparse.BooleanOptionalAction, default=None,
                    help="turn Proton logging on/off for game shortcuts")
+    p.add_argument("--handheld-fix", action=argparse.BooleanOptionalAction, default=None,
+                   help="start the launcher reporting a generic board so it does not switch to "
+                        "its handheld UI (default: on)")
     p = sub.add_parser("learn", help="record how the launcher starts a game")
     p.add_argument("--seconds", type=int, default=300)
     p.add_argument("--game", help="only watch for this product code or uid")

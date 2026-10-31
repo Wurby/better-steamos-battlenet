@@ -52,7 +52,7 @@ def args(**kw):
     """argparse-style namespace with safe defaults for every command."""
     base = dict(dry_run=False, yes=True, start_steam=False, no_art=True, proton=None,
                 proton_log=None, seconds=1, file=None, latest=False, on_desktop=False,
-                learn=None, game=None, prune=None)
+                learn=None, game=None, prune=None, handheld_fix=None)
     base.update(kw)
     return SimpleNamespace(**base)
 

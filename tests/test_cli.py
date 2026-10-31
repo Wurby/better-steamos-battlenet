@@ -43,7 +43,8 @@ class Sync(Base):
         self.assertTrue(game["LaunchOptions"].endswith("%command% -uid w2"))
         self.assertNotIn("PROTON_LOG", game["LaunchOptions"])
         self.assertEqual(names["My Emulator"], before["0"])
-        self.assertEqual(names["Battle.net"], before["1"])
+        launcher = {k: v for k, v in names["Battle.net"].items() if k != "LaunchOptions"}
+        self.assertEqual(launcher, {k: v for k, v in before["1"].items() if k != "LaunchOptions"})
         cfg = self.env.config_path.read_text()
         self.assertRegex(cfg, rf'"{game["appid"]}"\s*\{{\s*"name"\s*"proton_11"')
         self.assertEqual(cli.load_state(self.env)["games"]["w2"], game["appid"])
@@ -495,8 +496,8 @@ class LauncherShortcuts(Base):
 
     def test_every_shortcut_runs_through_the_wrapper(self):
         cli.cmd_sync(self.env, args())
-        for name in ("WoW Classic Era", "Warcraft II Battle.net Edition"):
-            self.assertIn(f'"{self.script}" %command%', self.opts(name))
+        self.assertIn(f'"{self.script}" --launcher-fix %command%', self.opts("WoW Classic Era"))
+        self.assertIn(f'"{self.script}" %command%', self.opts("Warcraft II Battle.net Edition"))
         self.assertTrue(os.access(self.script, os.X_OK))
 
     def test_an_unknown_family_falls_back_to_the_product_code(self):
@@ -537,3 +538,74 @@ class LauncherShortcuts(Base):
         self.script.write_text("old")
         cli.cmd_sync(self.env, args())
         self.assertNotEqual(self.script.read_text(), "old")
+
+
+class HandheldFix(Base):
+    """The launcher is started through launcher.bat so it does not switch to its handheld UI."""
+
+    def setUp(self):
+        super().setUp()
+        self.script = self.env.work / "run-game.sh"
+        self.bat = self.fs.prefix / "pfx" / bn.LAUNCHER_SCRIPT_REL
+
+    def launcher_opts(self):
+        return self.by_name()["Battle.net"]["LaunchOptions"]
+
+    def test_launcher_shortcut_runs_through_the_wrapper_with_the_fix_and_keeps_its_exe(self):
+        before = self.by_name()["Battle.net"]
+        cli.cmd_sync(self.env, args())
+        after = self.by_name()["Battle.net"]
+        self.assertEqual(after["exe"], before["exe"])                  # still points at Battle.net.exe
+        self.assertEqual(after["appid"], before["appid"])
+        self.assertIn(f'"{self.script}" --launcher-fix %command%', after["LaunchOptions"])
+        self.assertIn("STEAM_COMPAT_DATA_PATH=", after["LaunchOptions"])
+
+    def test_batch_file_reports_a_generic_board_then_starts_the_launcher_with_its_arguments(self):
+        cli.cmd_sync(self.env, args())
+        text = self.bat.read_bytes().decode()
+        self.assertIn("\r\n", text)                                    # a Windows batch file
+        self.assertNotIn("Valve", text)
+        self.assertIn("BaseBoardManufacturer", text)
+        self.assertIn("BaseBoardProduct", text)
+        self.assertIn("To Be Filled By O.E.M.", text)
+        self.assertTrue(text.splitlines()[-1].startswith('start "" "C:\\Program Files (x86)\\Battle.net\\Battle.net.exe" %*'))
+        self.assertLess(text.index("reg add"), text.index("start"))   # values are set BEFORE it starts
+
+    def test_second_run_changes_nothing(self):
+        cli.cmd_sync(self.env, args())
+        snap = (self.env.shortcuts_path.read_bytes(), self.bat.read_bytes())
+        self.m_stop.reset_mock()
+        cli.cmd_sync(self.env, args())
+        self.assertEqual((self.env.shortcuts_path.read_bytes(), self.bat.read_bytes()), snap)
+        self.m_stop.assert_not_called()
+
+    def test_custom_launch_options_on_the_battlenet_shortcut_are_never_overwritten(self):
+        sc = self.fs.shortcuts()
+        sc["1"]["LaunchOptions"] = "MY_ENV=1 %command% --my-flag"
+        self.fs.write_shortcuts(sc)
+        cli.cmd_sync(self.env, args())
+        self.assertEqual(self.launcher_opts(), "MY_ENV=1 %command% --my-flag")
+
+    def test_the_fix_can_be_turned_off_and_back_on_and_the_choice_sticks(self):
+        cli.cmd_sync(self.env, args(handheld_fix=False))
+        self.assertNotIn("--launcher-fix", self.launcher_opts())
+        self.assertIn("run-game.sh", self.launcher_opts())
+        self.assertFalse(self.bat.exists())
+        cli.cmd_sync(self.env, args())                                   # unspecified: stays off
+        self.assertNotIn("--launcher-fix", self.launcher_opts())
+        cli.cmd_sync(self.env, args(handheld_fix=True))
+        self.assertIn("--launcher-fix", self.launcher_opts())
+        self.assertTrue(self.bat.exists())
+
+    def test_dry_run_writes_neither_the_batch_file_nor_the_script(self):
+        snap = self.env.shortcuts_path.read_bytes()
+        cli.cmd_sync(self.env, args(dry_run=True))
+        self.assertFalse(self.bat.exists())
+        self.assertFalse(self.script.exists())
+        self.assertEqual(self.env.shortcuts_path.read_bytes(), snap)
+
+    def test_stale_batch_file_is_refreshed(self):
+        cli.cmd_sync(self.env, args())
+        self.bat.write_bytes(b"old")
+        cli.cmd_sync(self.env, args())
+        self.assertNotEqual(self.bat.read_bytes(), b"old")

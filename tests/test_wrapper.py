@@ -27,7 +27,7 @@ esac
 '''
 
 
-class WrapperScript(unittest.TestCase):
+class WrapperBase(unittest.TestCase):
     def setUp(self):
         self._t = tempfile.TemporaryDirectory()
         self.addCleanup(self._t.cleanup)
@@ -57,6 +57,8 @@ class WrapperScript(unittest.TestCase):
         (self.proc / "42").mkdir()
         (self.proc / "42/cmdline").write_bytes(LAUNCHER_CMD)
 
+
+class WrapperScript(WrapperBase):
     def test_with_no_launcher_the_command_runs_unchanged_and_nothing_is_logged(self):
         r = self.run_wrapper("-launch", "-uid", "s1")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -106,6 +108,65 @@ class WrapperScript(unittest.TestCase):
         self.open_launcher()
         self.run_wrapper("-mode", "waitforexitandrun")
         self.assertEqual(self.rec(), [f"game-via-run [{self.game}] [-mode] [waitforexitandrun]"])
+
+
+class LauncherFix(WrapperBase):
+    """--launcher-fix redirects a launcher start through launcher.bat."""
+
+    def setUp(self):
+        super().setUp()
+        self.compat = self.t / "compat"
+        self.cmd = self.compat / "pfx/drive_c/windows/system32/cmd.exe"
+        self.bat = self.compat / "pfx/drive_c/bnet-steam/launcher.bat"
+        for f in (self.cmd, self.bat):
+            f.parent.mkdir(parents=True, exist_ok=True)
+            f.write_text("")
+        self.bnet = self.compat / "pfx/drive_c/Program Files (x86)/Battle.net/Battle.net.exe"
+
+    def run_fix(self, *args, fix=True, **env):
+        e = {**os.environ, "FAKE_DIR": str(self.fake), "BNET_STEAM_PROC": str(self.proc),
+             "STEAM_COMPAT_DATA_PATH": str(self.compat), **env}
+        e = {k: v for k, v in e.items() if v is not None}
+        cmd = [str(self.script)] + (["--launcher-fix"] if fix else []) + [
+            str(self.proton), "waitforexitandrun", str(self.bnet), *args]
+        return subprocess.run(cmd, env=e, capture_output=True, text=True, timeout=60)
+
+    def test_the_launcher_exe_is_replaced_by_cmd_running_the_batch_file_with_the_arguments(self):
+        r = self.run_fix("--exec=launch", "WoWC")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.rec(), [f"game-via-waitforexitandrun [{self.cmd}] [/c] [C:\\bnet-steam\\launcher.bat] "
+                                      "[--exec=launch] [WoWC]"])
+        self.assertIn("generic board", (self.t / "logs/run-game.log").read_text())
+
+    def test_without_the_flag_the_command_is_untouched(self):
+        self.run_fix("--exec=launch", "WoWC", fix=False)
+        self.assertEqual(self.rec(), [f"game-via-waitforexitandrun [{self.bnet}] [--exec=launch] [WoWC]"])
+
+    def test_an_open_launcher_also_gets_the_verb_swap_alongside_the_fix(self):
+        self.open_launcher()
+        self.run_fix("--exec=launch", "WoWC")
+        self.assertEqual(len(self.rec()), 1)
+        self.assertTrue(self.rec()[0].startswith(f"game-via-run [{self.cmd}] [/c]"))
+
+    def test_missing_batch_file_or_cmd_falls_back_to_starting_the_launcher_normally(self):
+        self.bat.unlink()
+        self.run_fix("-x")
+        self.assertEqual(self.rec(), [f"game-via-waitforexitandrun [{self.bnet}] [-x]"])
+        self.assertIn("not applied", (self.t / "logs/run-game.log").read_text())
+
+    def test_only_a_launcher_exe_argument_is_rewritten(self):
+        r = subprocess.run([str(self.script), "--launcher-fix", str(self.proton), "waitforexitandrun",
+                            str(self.t / "StarCraft.exe"), "-uid", "s1"],
+                           env={**os.environ, "FAKE_DIR": str(self.fake), "BNET_STEAM_PROC": str(self.proc),
+                                "STEAM_COMPAT_DATA_PATH": str(self.compat)},
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.rec(), [f"game-via-waitforexitandrun [{self.t / 'StarCraft.exe'}] [-uid] [s1]"])
+
+    def test_no_compat_path_means_no_rewrite_and_no_crash(self):
+        r = self.run_fix("-x", STEAM_COMPAT_DATA_PATH=None)
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(self.rec(), [f"game-via-waitforexitandrun [{self.bnet}] [-x]"])
 
 
 class WrapperFile(unittest.TestCase):
