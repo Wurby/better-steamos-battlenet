@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, art, learn, steam, vdf
+from . import __version__, art, learn, steam, vdf, wrapper
 from . import battlenet as bn
 from .errors import BnetSteamError
 
@@ -162,7 +162,17 @@ def cmd_sync(env, args):
         else:       # no usable exe: ask the launcher to open the game
             exe, start, source = launcher["exe"], launcher["StartDir"], "launcher fallback"
             gargs = f'--exec="launch {g["code"]}"'
-        opts = bn.launch_options(prefix, logdir, gargs)
+        via = None
+        if spec:
+            # every game runs through the wrapper, which stops a running launcher from blocking
+            # it; games that sign in through the launcher also have it started and logged in
+            via = f'"{env.work / wrapper.SCRIPT_NAME}"'
+            if wrapper.needs_launcher(gargs):
+                via += " --login"
+                source += ", starts the launcher first"
+            if not args.dry_run:
+                wrapper.ensure(env)
+        opts = bn.launch_options(prefix, logdir, gargs, via)
         new_id = steam.shortcut_appid(exe, g["name"])
         cur = existing.get(mine.get(g["uid"], new_id))
         appid = cur["appid"] if cur else new_id

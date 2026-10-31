@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -461,3 +462,63 @@ class RealCompositing(unittest.TestCase):
                     ["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of",
                      "csv=p=0", str(out)], capture_output=True, text=True).stdout.strip()
                 self.assertEqual(probe, f"{w},{h}")
+
+
+class LauncherWrapper(Base):
+    """Every game runs through run-game.sh; --login only for games that sign in via the launcher."""
+
+    def setUp(self):
+        super().setUp()
+        self.fs.add_game("wow_classic_era", "wow_classic_era", "World of Warcraft", "WoW Classic Era",
+                         "_classic_era_/WowClassic.exe")
+        cli.save_state(self.env, {"learned": {"wow_classic_era": {
+            "exe": "_classic_era_/WoWClassic.exe",
+            "args": "-launcherlogin -uid {uid} -initialgamemode=cera"}}})
+        self.script = self.env.work / "run-game.sh"
+
+    def opts(self, name):
+        return self.by_name()[name]["LaunchOptions"]
+
+    def test_every_game_is_wrapped_and_only_login_games_get_the_login_flag(self):
+        cli.cmd_sync(self.env, args())
+        self.assertIn(f'"{self.script}" --login %command% -launcherlogin -uid wow_classic_era',
+                      self.opts("WoW Classic Era"))
+        w2 = self.opts("Warcraft II Battle.net Edition")
+        self.assertIn(f'"{self.script}" %command% -uid w2', w2)
+        self.assertNotIn("--login", w2)
+        self.assertTrue(self.script.exists())
+        self.assertTrue(os.access(self.script, os.X_OK))
+
+    def test_existing_shortcut_gains_the_login_flag_in_place_when_the_real_command_is_learned(self):
+        learned = cli.load_state(self.env)["learned"]
+        cli.save_state(self.env, {"learned": {}})          # at first the start command is a guess
+        cli.cmd_sync(self.env, args())
+        before = self.by_name()["WoW Classic Era"]
+        self.assertNotIn("--login", before["LaunchOptions"])
+        state = cli.load_state(self.env)
+        state["learned"] = learned                          # now the real command is known
+        cli.save_state(self.env, state)
+        cli.cmd_sync(self.env, args())
+        after = self.by_name()["WoW Classic Era"]
+        self.assertIn("--login", after["LaunchOptions"])
+        self.assertEqual(after["appid"], before["appid"])
+
+    def test_launcher_fallback_shortcuts_are_not_wrapped(self):
+        self.fs.add_game("ng", "ng", "New Game", "New Game", "CrashReporter.exe")   # only a helper exe
+        agg = self.fs.prefix / "pfx" / bn.AGGREGATE_REL
+        data = json.loads(agg.read_text())
+        data["installed"][-1]["icon_path"] = ""
+        agg.write_text(json.dumps(data))
+        cli.cmd_sync(self.env, args())
+        self.assertNotIn("run-game", self.opts("New Game"))
+        self.assertIn('--exec="launch ng"', self.opts("New Game"))
+
+    def test_dry_run_does_not_write_the_script(self):
+        cli.cmd_sync(self.env, args(dry_run=True))
+        self.assertFalse(self.script.exists())
+
+    def test_wrapper_script_is_refreshed_when_stale(self):
+        cli.cmd_sync(self.env, args())
+        self.script.write_text("old")
+        cli.cmd_sync(self.env, args())
+        self.assertNotEqual(self.script.read_text(), "old")

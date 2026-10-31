@@ -90,11 +90,14 @@ def stage(prefix):
     return 2, "installer not run yet"
 
 
-def launch_options(prefix, logdir=None, args=""):
-    """Steam LaunchOptions: shared prefix, optional Proton logging, then the args."""
+def launch_options(prefix, logdir=None, args="", wrapper=None):
+    """Steam LaunchOptions: shared prefix, optional Proton logging, an optional wrapper
+    command (already quoted, e.g. '"/x/run-game.sh" --login'; see wrapper.py), then the args."""
     opts = f'STEAM_COMPAT_DATA_PATH="{prefix}"'
     if logdir:
         opts += f' PROTON_LOG=1 PROTON_LOG_DIR="{logdir}"'
+    if wrapper:
+        opts += f" {wrapper}"
     return f"{opts} %command% {args}".rstrip()
 
 

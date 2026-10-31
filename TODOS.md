@@ -16,8 +16,11 @@
 - [ ] CI that runs the unit tests
 
 - [ ] Create art inside the write session, after the user confirms (currently before)
-- [ ] Confirm WoW Classic Era starts from its Steam shortcut (the launcher reaches the login
-      screen with the same command; the shortcut itself is untested)
+- [ ] Confirm `run-game.sh --login` works inside Steam: press Play on the WoW Classic Era shortcut
+      with the launcher closed, then with it open (check `logs/run-game.log`)
+- [ ] Confirm an open launcher no longer blocks a plain game shortcut (StarCraft)
+- [ ] Let the user mark a game as needing / not needing the launcher (currently inferred from
+      `-launcherlogin` / `-sso`)
 
 ## Later
 - [ ] Flatpak Steam support

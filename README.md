@@ -79,6 +79,14 @@ launcher, then records the exact command (Enter skips; scripted runs never promp
 with no usable exe fall back to asking the launcher to open them. `sync` labels each game
 with which one it used.
 
+## Games that sign in through the launcher
+Some games (World of Warcraft, Diablo IV) ask the running, logged-in launcher for your session,
+so on their own they land on a login screen. Their shortcuts go through `run-game.sh --login`,
+which starts the launcher, waits until it reports it is logged in, runs the game, and closes a
+launcher it started. Every game shortcut also goes through `run-game.sh` so that an open
+launcher cannot block it (Proton's `waitforexitandrun` waits for the whole Wine prefix to go
+idle). Its log is `~/.local/share/bnet-steam/logs/run-game.log`.
+
 ## Artwork
 Blizzard only provides a square key-art tile and a small icon, so portrait, wide and hero
 images are built from the tile over a blurred copy of itself. If Battle.net has not listed a
@@ -96,8 +104,8 @@ is never replaced, so you can pick better art on steamgriddb.com and it will sti
   Check each game's support status yourself.
 - Battle.net lists new games lazily, so a just-installed game may show a rough name and
   parent-product art until the next `sync` after Battle.net catches up (names then update in place).
-- Whether games that sign in through the launcher (Diablo IV passes `-sso`) start with the
-  launcher closed is untested.
+- The launcher-first wrapper is tested against the real launcher with a stand-in game and in
+  unit tests, but not yet confirmed with a real game launched from Steam.
 
 ## Development
 ```sh

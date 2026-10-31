@@ -17,6 +17,7 @@ bnet_steam/
   art.py        default library art via ffmpeg; launcher icon
   learn.py      watch the launcher's Play button to record a game's real start command
   pe_icon.py    pull an exe's main icon out of its PE resources (pure Python)
+  wrapper.py    run-game.sh: the launch-option wrapper every game shortcut runs through
   cli.py        commands and argument parsing
 tests/          unittest suite; helpers.py builds a fake Steam + Battle.net prefix
 ```
@@ -72,6 +73,21 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
   Blizzard's art CDN pattern `bnetxboxassets.akamaized.net/<code>/{box,logo}-enUS.webp` held for
   `s1`, `fenris`, `wow`, `wow_classic` but 404s for `wow_classic_era`; we try the code, then its
   parents (`wow_classic_era` -> `wow_classic` -> `wow`).
+- Proton's `waitforexitandrun` verb (what Steam uses) first runs `wineserver -w`, i.e. waits for
+  EVERY Wine process in the prefix to exit, then runs the game (see the `proton` script). With
+  the Battle.net launcher open in the same prefix the game would never start. Seen directly:
+  the wrapper prototype hung for 200 s until killed. `run-game.sh` swaps the verb to `run` when a
+  launcher is up.
+- Games that start with `-launcherlogin` (WoW Classic Era) or `-sso` (Diablo IV) ask the running,
+  logged-in launcher for the session. WoW started from its shortcut with no launcher running
+  reached the login screen and could not connect; its client logs showed `Glue Fatal Error` /
+  `Front disconnected`, and the Proton log showed no `Battle.net.exe` in the session. That the
+  launcher is the missing piece is the best explanation, not yet proven.
+- Battle.net's own log (`AppData/Local/Battle.net/Logs/battle.net-*.log`, CRLF line endings)
+  records `GSStateTracker State changed to: Ready` once logged in and loaded (~7-15 s).
+- `proton run taskkill /F /IM Battle.net.exe` closes the launcher cleanly.
+- Run against the real launcher with a stand-in game, `run-game.sh --login` started the launcher,
+  saw Ready after 7 s, swapped the verb, ran the game and closed the launcher (11 s total).
 - Launch args cannot be derived from install metadata, so `sync` guides the user through
   pressing Play once for any game it can only guess at.
 - The Battle.net logo is a 256x256 PNG-compressed icon inside `Battle.net.exe`.
@@ -83,6 +99,10 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
   isolated.
 
 ## Unverified / known gaps
+- `run-game.sh` inside Steam's runtime container: whether it sees the launcher's processes, and
+  whether a game started in the container shares a Wine server with a launcher the wrapper
+  started outside it. Its log (`<data dir>/logs/run-game.log`) records argv, container and
+  process visibility to answer this.
 - Art is created before the confirmation prompt (new files only, but a cancelled sync can
   still leave images behind). Fix: create art inside the write session, after confirmation.
 - Derived default launch args (`-uid <uid>`) for any game other than the verified ones;
