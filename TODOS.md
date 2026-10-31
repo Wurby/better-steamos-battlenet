@@ -3,7 +3,7 @@
 ## Before going public
 - [x] Repo with AGENTS.md / CLAUDE.md / TODOS.md
 - [x] Safety pass: confirm prompt, backups, restore command, atomic writes, rollback,
-      strict round-trip check, tests (64, mutation-checked)
+      strict round-trip check, tests (165, safety rules mutation-checked)
 - [x] Guided `learn` during `sync`, real-game-exe heuristic, cleanup (`--prune`), launcher icon
 - [x] Generalization pass: Steam root/user detection, Proton detection, XDG data dir,
       generated desktop entries (no hard-coded paths)
@@ -16,14 +16,13 @@
 - [ ] CI that runs the unit tests
 
 - [ ] Create art inside the write session, after the user confirms (currently before)
-- [ ] Confirm pressing Play on a login game (WoW Classic Era) from the launcher's handheld tab works
-      (the shortcut opens the launcher, which renders normally; Play itself is untested here)
+- [x] Confirmed by the owner: Play works for a login game (WoW Classic Era) from the launcher
 - [x] Handheld fix confirmed on screen by the owner: the launcher opens on its normal Home page
 - [ ] The launcher opens on Home, so `--exec="launch <family>"` selects the game but does not
       navigate to its page; find a way to land on the game, or accept one extra click
 - [ ] Test the handheld fix on non-Valve hardware (it should be a no-op there)
 - [ ] Optional: automate the Play click for login games (fragile)
-- [ ] Confirm an open launcher no longer blocks a plain game shortcut (StarCraft)
+- [x] Confirmed by the owner: StarCraft starts with the launcher open (run-game.sh swapped the verb)
 - [ ] Let the user mark a game as needing / not needing the launcher (currently inferred from
       `-launcherlogin` / `-sso`)
 
