@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, art, steam, vdf
+from . import __version__, art, learn, steam, vdf
 from . import battlenet as bn
 from .errors import BnetSteamError
 
@@ -144,8 +144,16 @@ def cmd_sync(env, args):
     tool = state.get("proton") or steam.pick_proton(env.root, args.proton)
     mine = state.setdefault("games", {})            # uid -> appid we created
     games = bn.installed_games(prefix)
+    guide_unverified(env, state, prefix, games, args)
     existing = steam.by_appid(data["shortcuts"])
     adds, updates, art_written = [], [], 0
+    if not args.no_art and bn.launcher_exe(prefix).exists():
+        icon, written = art.ensure_launcher_icon(env, launcher["appid"],
+                                                 bn.launcher_exe(prefix), args.dry_run)
+        art_written += len(written)
+        if icon and not launcher.get("icon"):       # never replace an icon the user chose
+            print(f"  UPDATE Battle.net launcher icon appid={launcher['appid']} (kept)")
+            updates.append((launcher["appid"], {"icon": icon}))
     for g in games:
         spec = bn.launch_spec(prefix, g, state)
         if spec:    # run the game exe itself so Steam tracks the real process
@@ -174,18 +182,24 @@ def cmd_sync(env, args):
             updates.append((appid, want))
         else:
             print(f"  have   {label}")
-    for uid in [u for u in mine if u not in {g["uid"] for g in games}]:
-        print(f"  note   {uid} no longer installed; its shortcut is left in place")
+    removes = plan_prune(prefix, launcher, state, games, existing, args)
+    # forget shortcuts that are already gone from Steam (e.g. removed by hand)
+    stale = [u for u, a in mine.items()
+             if u not in {g["uid"] for g in games} and a not in existing]
+    if stale and not args.dry_run:
+        for u in stale:
+            mine.pop(u)
+        save_state(env, state)
     if art_written:
         print(f"  art    wrote {art_written} image(s); restart Steam to see them")
-    if not adds and not updates:
+    if not adds and not updates and not removes:
         print("nothing to do")
         return
     if args.dry_run:
         print("[dry-run] nothing written")
         return
-    with steam.write_session(env, f"Add {len(adds)} and update {len(updates)} game shortcut(s).",
-                             args.yes, args.start_steam) as s:
+    summary = f"Add {len(adds)}, update {len(updates)} and remove {len(removes)} shortcut(s)."
+    with steam.write_session(env, summary, args.yes, args.start_steam) as s:
         data = s.load_shortcuts()
         sc, cfg = data["shortcuts"], s.read_config()
         cur_by = steam.by_appid(sc)
@@ -196,42 +210,101 @@ def cmd_sync(env, args):
         for appid, want in updates:
             if appid in cur_by:
                 cur_by[appid].update(want)
+        if removes:
+            drop = {appid for appid, _, _ in removes}
+            kept = [e for e in sc.values() if e["appid"] not in drop]
+            data["shortcuts"] = {str(i): e for i, e in enumerate(kept)}     # keep keys contiguous
         s.save_shortcuts(data)
         s.save_config(cfg)
     for g, entry in adds:
         mine[g["uid"]] = entry["appid"]
+    for _, _, uid in removes:
+        mine.pop(uid, None)
     save_state(env, state)
-    print(f"added {len(adds)}, updated {len(updates)} shortcut(s)")
+    print(f"added {len(adds)}, updated {len(updates)}, removed {len(removes)} shortcut(s)")
+
+
+def plan_prune(prefix, launcher, state, games, existing, args):
+    """Shortcuts this tool created for games that are no longer installed.
+    Returns [(appid, name, uid)] to remove. Removal is opt-in: asked about on a terminal,
+    done without asking only with --prune, otherwise just reported."""
+    installed = {g["uid"] for g in games}
+    gone = [(appid, existing[appid]["appname"], uid)
+            for uid, appid in state.get("games", {}).items()
+            if uid not in installed and appid in existing and appid != launcher["appid"]]
+    if not gone:
+        return []
+    # if Battle.net's files are unreadable every game would look uninstalled; remove nothing
+    if not ((prefix / "pfx" / bn.PRODUCT_DB_REL).exists() and bn.launcher_exe(prefix).exists()):
+        print("  note   cannot tell what is installed (Battle.net files are missing); "
+              "not removing anything")
+        return []
+    if args.prune is False:
+        return []
+    if args.prune is None:
+        if args.dry_run or args.yes or not sys.stdin.isatty():
+            for _, name, _ in gone:
+                print(f"  gone   {name}: no longer installed; `sync --prune` removes its shortcut")
+            return []
+        print("Some games are no longer installed. Removing a shortcut makes Steam delete its "
+              "own compat folder for it; your Battle.net install is not affected.")
+        return [g for g in gone if input(f"Remove the Steam shortcut for {g[1]}? [y/N] "
+                                         ).strip().lower() in ("y", "yes")]
+    for appid, name, _ in gone:
+        print(f"  REMOVE {name} appid={appid} (no longer installed)")
+    return gone
+
+
+def learn_games(env, state, prefix, games, seconds, skip_on_enter=False):
+    """Watch for the launcher starting one of `games`; record and save what it runs."""
+    hit = learn.watch(games, seconds, skip_on_enter)
+    if not hit:
+        return None
+    g, rel, gargs = hit
+    state.setdefault("learned", {})[g["code"]] = learn.to_spec(g, rel, gargs)
+    save_state(env, state)
+    print(f"learned {g['name']} ({g['code']}): {rel} {gargs}")
+    return g
 
 
 def cmd_learn(env, args):
-    """Watch for a game started by the launcher's Play button; record its command line."""
-    data = steam.load_shortcuts(env)
-    _, prefix = require_launcher(env, data)
+    """Press Play on a game in the launcher; record how it is started."""
+    _, prefix = require_launcher(env, steam.load_shortcuts(env))
     games = bn.installed_games(prefix)
-    state = load_state(env)
+    if args.game:
+        games = [g for g in games if args.game in (g["code"], g["uid"])]
+        if not games:
+            raise BnetSteamError(f"no installed game {args.game!r}")
     print(f"Press Play on a game in the Battle.net launcher (waiting {args.seconds}s)...")
-    end = time.time() + args.seconds
-    while time.time() < end:
-        for line in subprocess.run(["ps", "-eo", "args"], capture_output=True,
-                                   text=True).stdout.splitlines():
-            for g in games:
-                win = g["install_path"].replace("/", "\\") + "\\"
-                i = line.lower().find(".exe")
-                if not line.startswith(win) or i < 0:
-                    continue
-                gargs = line[i + 4:].strip()
-                if g["uid"] not in gargs.split():      # helpers don't get -uid <uid>
-                    continue
-                rel = line[len(win):i + 4].replace("\\", "/")
-                state.setdefault("learned", {})[g["code"]] = {
-                    "exe": rel, "args": gargs.replace(g["uid"], "{uid}")}
-                save_state(env, state)
-                print(f"learned {g['name']} ({g['code']}): {rel} {gargs}")
-                print("run `sync` to apply it")
-                return
-        time.sleep(1)
-    print("nothing seen")
+    if learn_games(env, load_state(env), prefix, games, args.seconds):
+        print("run `sync` to apply it")
+    else:
+        print("nothing seen")
+
+
+def guide_unverified(env, state, prefix, games, args):
+    """Walk the user through teaching us games whose start command we can only guess."""
+    todo = []
+    for g in games:
+        spec = bn.launch_spec(prefix, g, state)
+        if spec is None or spec[2].startswith("derived"):
+            todo.append(g)
+    if not todo:
+        return
+    scripted = args.yes or not sys.stdin.isatty()
+    wanted = args.learn if args.learn is not None else not scripted
+    if args.dry_run or not wanted:
+        for g in todo:
+            print(f"  note   {g['name']}: start command is a guess; run `learn --game "
+                  f"{g['code']}` or `sync --learn` to record the real one")
+        return
+    for g in todo:
+        print(f"\n{g['name']} has not been verified, so its start command would be a guess.")
+        print("Open the Battle.net launcher (start the 'Battle.net' shortcut in Steam if it is")
+        print(f"not open), press Play on {g['name']}, let it reach its first screen, then quit.")
+        print("Waiting up to 3 minutes; press Enter here to skip and use the guess.")
+        if not learn_games(env, state, prefix, [g], 180, skip_on_enter=sys.stdin.isatty()):
+            print(f"skipped {g['name']}; its shortcut will use a guess")
 
 
 def cmd_launch(env, args):
@@ -333,10 +406,16 @@ def build_parser():
     p = sub.add_parser("sync", parents=[write], help="add/update shortcuts for installed games")
     p.add_argument("--proton", help="compat tool name if not set at install time")
     p.add_argument("--no-art", action="store_true", help="skip default artwork")
+    p.add_argument("--prune", action=argparse.BooleanOptionalAction, default=None,
+                   help="remove shortcuts for games that are no longer installed "
+                        "(default: ask on a terminal)")
+    p.add_argument("--learn", action=argparse.BooleanOptionalAction, default=None,
+                   help="walk through recording unverified games (default: when interactive)")
     p.add_argument("--proton-log", action=argparse.BooleanOptionalAction, default=None,
                    help="turn Proton logging on/off for game shortcuts")
     p = sub.add_parser("learn", help="record how the launcher starts a game")
     p.add_argument("--seconds", type=int, default=300)
+    p.add_argument("--game", help="only watch for this product code or uid")
     sub.add_parser("launch", help="start the Battle.net shortcut through Steam")
     p = sub.add_parser("restore", parents=[write], help="list or restore Steam file backups")
     p.add_argument("file", nargs="?", help="backup file to restore")

@@ -14,7 +14,9 @@ bnet_steam/
   vdf.py        binary VDF codec (shortcuts.vdf); text edit for config.vdf CompatToolMapping
   steam.py      Steam discovery, Proton detection, backups, atomic writes, write_session
   battlenet.py  product.db / aggregate.json parsing, launch specs, installer download
-  art.py        default library art via ffmpeg
+  art.py        default library art via ffmpeg; launcher icon
+  learn.py      watch the launcher's Play button to record a game's real start command
+  pe_icon.py    pull an exe's main icon out of its PE resources (pure Python)
   cli.py        commands and argument parsing
 tests/          unittest suite; helpers.py builds a fake Steam + Battle.net prefix
 ```
@@ -32,6 +34,10 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
 - For an existing shortcut, **read the stored appid**; never recompute it. Steam-UI-created
   shortcuts use a different appid scheme. Updates keep the appid.
 - Do not overwrite user art or user-set shortcut fields (icon etc.).
+- Cleanup (`sync --prune`) only removes shortcuts this tool created (tracked in `state.json`),
+  never the launcher, and does nothing if Battle.net's own files look unreadable (a glitch
+  would make every game look uninstalled). It is opt-in: asked per game on a terminal,
+  `--prune` to do it unasked, report-only when scripted or `--dry-run`.
 - Tests must never touch the real Steam dir. Use `tests/helpers.FakeSteam`.
 - Do not commit personal data: Steam IDs, home paths, backups, API keys, `state.json`.
 - Do not publish (push, post, release) without the owner's explicit say-so.
@@ -50,6 +56,13 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
 - StarCraft's exe, run through its Steam shortcut with the launcher closed, starts. (Not
   separately confirmed for other games.)
 - `product.db` is protobuf: `ProductInstall{1 uid, 2 code, 3 settings{1 install_path}}`.
+- Diablo IV (code and uid `fenris`) is started as
+  `Diablo IV.exe -nostreamline -sso -launch -uid fenris`; Battle.net reports the 5 MB
+  `Diablo IV Launcher.exe` stub as its exe, which is not the game. Recorded with `learn`;
+  playing it from the Steam shortcut was not confirmed.
+- Launch args cannot be derived from install metadata, so `sync` guides the user through
+  pressing Play once for any game it can only guess at.
+- The Battle.net logo is a 256x256 PNG-compressed icon inside `Battle.net.exe`.
 - `Agent/aggregate.json` lists installed games: `product_id`, `name`, `icon_path`
   (primary exe, but the x86 build for StarCraft), `box_art_uri`, `logo_art_uri`.
 - Steam keeps a game "running" until its whole launch session exits. After StarCraft's
@@ -58,7 +71,11 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
   isolated.
 
 ## Unverified / known gaps
-- Derived default launch args (`-uid <uid>`) for any game other than the two above.
+- Derived default launch args (`-uid <uid>`) for any game other than the verified ones;
+  Diablo IV proved the guess can be wrong, hence the guided `learn`.
+- Games whose sign-in needs the launcher running (`-sso` hints at it); not yet tested.
+- What Steam does on shortcut removal beyond deleting `compatdata/<appid>` (reported, not
+  observed by us).
 - Flatpak Steam (refused with a message), non-SteamOS distros, Python < 3.14 (tested on 3.14 only).
 - SGDBoop URI behaviour (we only coexist with its output; we never call it).
 - Blizzard endpoints (`downloader.battle.net`, `bnetxboxassets.akamaized.net`) are

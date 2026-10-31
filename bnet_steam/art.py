@@ -9,6 +9,9 @@ import shutil
 import subprocess
 import urllib.request
 
+from . import pe_icon
+from .errors import BnetSteamError
+
 ART_EXTS = ("jpg", "jpeg", "png", "webp", "ico")
 
 
@@ -78,3 +81,21 @@ def ensure_art(env, appid, g, dry_run=False):
         print(f"  art    failed for {g['name']}: {e}")
     found = _existing(grid, icon_stem)
     return (str(found) if found else ""), written
+
+
+def ensure_launcher_icon(env, appid, exe, dry_run=False):
+    """Default icon for the Battle.net shortcut, taken from the launcher's own exe.
+    Returns (icon path or "", [files written])."""
+    have = _existing(env.grid_dir, f"{appid}_icon")
+    if have:
+        return str(have), []
+    dest = env.grid_dir / f"{appid}_icon.png"
+    if dry_run:
+        print("  art    would extract the Battle.net icon from its executable")
+        return str(dest), []
+    try:
+        pe_icon.write_icon_png(exe, dest)
+    except BnetSteamError as e:
+        print(f"  art    launcher icon failed: {e}")
+        return "", []
+    return str(dest), [dest]

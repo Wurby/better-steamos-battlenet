@@ -167,6 +167,22 @@ def installed_games(prefix):
     return out
 
 
+# Executables in an install dir that are helpers, not the game (matched case-insensitively).
+NOT_THE_GAME = ("launcher", "error", "browser", "crash", "unins", "setup", "update",
+                "redist", "helper", "agent", "editor", "cef")
+
+
+def best_exe(gdir, reported):
+    """The game's main exe. Battle.net's reported exe is used unless it is a helper
+    (Diablo IV reports its 5 MB launcher stub); then the largest non-helper exe wins."""
+    def helper(p):
+        return any(w in p.name.lower() for w in NOT_THE_GAME)
+    if reported and reported.exists() and not helper(reported):
+        return reported
+    cands = [p for p in gdir.glob("*.exe") if not helper(p)]
+    return max(cands, key=lambda p: p.stat().st_size, default=None)
+
+
 def launch_spec(prefix, g, state):
     """(exe host path, args, source) for a game, or None to fall back to the launcher.
     Precedence: learned > verified > derived default."""
@@ -176,8 +192,11 @@ def launch_spec(prefix, g, state):
         spec, source = VERIFIED.get(g["code"]), "verified"
     if spec is None:
         spec, source = {"exe": None, "args": DEFAULT_ARGS}, "derived, unverified"
-    exe = gdir / spec["exe"] if spec["exe"] else (
-        host_path(prefix, g["icon_path"]) if g["icon_path"] else None)
+    if spec["exe"]:
+        exe = gdir / spec["exe"]
+    else:
+        reported = host_path(prefix, g["icon_path"]) if g["icon_path"] else None
+        exe = best_exe(gdir, reported)
     if exe is None or not exe.exists():
         return None
     return exe, spec["args"].format(uid=g["uid"]), source

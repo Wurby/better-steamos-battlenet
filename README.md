@@ -16,7 +16,9 @@ non-Steam shortcuts on Linux / SteamOS, running under Proton.
 3. Reads Battle.net's own files to find the games you have installed and keeps **one Steam
    shortcut per game**, each launching the real game executable so Steam tracks playtime
    and the Stop button works.
-4. Adds default library art built from Blizzard's own images (needs `ffmpeg`).
+4. Adds default library art built from Blizzard's own images (needs `ffmpeg`), and gives the
+   Battle.net shortcut its real logo, read from `Battle.net.exe`.
+5. Notices games you have uninstalled and offers to remove their shortcuts.
 
 ## Requirements
 - Linux with the **native** Steam client (Flatpak Steam is not supported yet), a Proton
@@ -58,8 +60,8 @@ It never deletes shortcuts, prefixes or game files. Undo the last change with
 | `download` | Fetch a fresh Battle.net installer |
 | `install` | Add the installer shortcut and prefix (`--proton NAME`, `--proton-log`) |
 | `repoint` | Point the shortcut at the installed launcher |
-| `sync` | Add/update a shortcut per installed game (`--no-art`, `--proton-log`) |
-| `learn` | Press Play on a game in the launcher once; records how it is started |
+| `sync` | Add/update a shortcut per installed game; asks before removing shortcuts of uninstalled ones (`--prune`/`--no-prune`, `--learn`/`--no-learn`, `--no-art`, `--proton-log`) |
+| `learn` | Press Play on a game in the launcher once; records how it is started (`--game CODE`) |
 | `launch` | Start the Battle.net shortcut through Steam |
 | `restore` | List or restore backups of Steam's files |
 | `desktop` | Add an app-menu entry (and optional desktop icon) that runs `sync` |
@@ -68,10 +70,14 @@ Global options: `--steam-root`, `--steam-user`, `--data-dir`.
 
 ## How games are launched
 Battle.net starts a game as `<game exe> -uid <uid>` (StarCraft also needs `-launch`).
-`sync` uses a launch spec in this order: **learned** (via `learn`), **verified** (built in),
-then a **derived default** of `-uid <uid>` using the exe Battle.net reports. Games with no
-usable exe fall back to asking the launcher to open them. `sync` labels each game with which
-one it used.
+Start commands can't be read from install metadata (Diablo IV, for example, needs
+`-nostreamline -sso -launch -uid fenris`). `sync` uses a launch spec in this order:
+**learned**, **verified** (built in), then a **derived default** of `-uid <uid>` on the game's
+main exe (helper executables such as launcher stubs are skipped). For a game it can only
+guess at, an interactive `sync` pauses and asks you to press Play once in the Battle.net
+launcher, then records the exact command (Enter skips; scripted runs never prompt). Games
+with no usable exe fall back to asking the launcher to open them. `sync` labels each game
+with which one it used.
 
 ## Artwork
 Blizzard only provides a square key-art tile and a small icon, so portrait, wide and hero
@@ -86,7 +92,9 @@ is never replaced, so you can pick better art on steamgriddb.com and it will sti
 - Native Steam only; one Wine prefix; x86-64 Linux/SteamOS tested only.
 - Anti-cheat titles may not work under Proton, and running them there may carry account risk.
   Check each game's support status yourself.
-- The Battle.net launcher shortcut has no default art.
+- The Battle.net shortcut only gets an icon, not portrait/hero art.
+- Whether games that sign in through the launcher (Diablo IV passes `-sso`) start with the
+  launcher closed is untested.
 
 ## Development
 ```sh

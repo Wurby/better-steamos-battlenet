@@ -51,7 +51,8 @@ def product(uid, code, path):
 def args(**kw):
     """argparse-style namespace with safe defaults for every command."""
     base = dict(dry_run=False, yes=True, start_steam=False, no_art=True, proton=None,
-                proton_log=None, seconds=1, file=None, latest=False, on_desktop=False)
+                proton_log=None, seconds=1, file=None, latest=False, on_desktop=False,
+                learn=None, game=None, prune=None)
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -110,3 +111,61 @@ class FakeSteam:
 
     def cleanup(self):
         self._tmp.cleanup()
+
+
+PNG = b"\x89PNG\r\n\x1a\n"
+
+
+def build_pe(images, group_id=1, dib=False):
+    """A minimal PE32 file whose resources hold one icon group of `images`
+    [(width, height, bits, payload)] (width/height 0 = 256). PNG-compressed unless dib."""
+    import struct
+    tree = {3: {}, 14: {}}
+    entries = b""
+    for i, (w, h, bits, payload) in enumerate(images, start=1):
+        data = payload if dib else PNG + payload
+        tree[3][i] = data
+        entries += struct.pack("<BBBBHHIH", w, h, 0, 0, 1, bits, len(data), i)
+    tree[14][group_id] = struct.pack("<HHH", 0, 1, len(images)) + entries
+
+    def d(n):               # resource directory header with n ID entries
+        return struct.pack("<IIHHHH", 0, 0, 4, 0, 0, n)
+
+    types = sorted(tree)
+    off = 16 + 8 * len(types)
+    type_off, lang_off, data_off = {}, {}, {}
+    for t in types:
+        type_off[t] = off
+        off += 16 + 8 * len(tree[t])
+    for t in types:
+        for n in sorted(tree[t]):
+            lang_off[t, n] = off
+            off += 24
+    for t in types:
+        for n in sorted(tree[t]):
+            data_off[t, n] = off
+            off += 16
+    blobs, blob_off = b"", {}
+    for t in types:
+        for n in sorted(tree[t]):
+            blob_off[t, n] = off + len(blobs)
+            blobs += tree[t][n] + b"\0" * (-len(tree[t][n]) % 4)
+    rva = 0x1000
+    rsrc = d(len(types)) + b"".join(struct.pack("<II", t, 0x80000000 | type_off[t]) for t in types)
+    for t in types:
+        rsrc += d(len(tree[t])) + b"".join(
+            struct.pack("<II", n, 0x80000000 | lang_off[t, n]) for n in sorted(tree[t]))
+    for t in types:
+        for n in sorted(tree[t]):
+            rsrc += d(1) + struct.pack("<II", 0x409, data_off[t, n])
+    for t in types:
+        for n in sorted(tree[t]):
+            rsrc += struct.pack("<IIII", rva + blob_off[t, n], len(tree[t][n]), 0, 0)
+    rsrc += blobs
+    dd = bytearray(128)
+    struct.pack_into("<II", dd, 16, rva, len(rsrc))
+    opt = struct.pack("<H", 0x10B) + b"\0" * 94 + bytes(dd)
+    coff = struct.pack("<HHIIIHH", 0x14C, 1, 0, 0, 0, len(opt), 0x102)
+    sec = b".rsrc\0\0\0" + struct.pack("<IIII", len(rsrc), rva, len(rsrc), 0x400) + b"\0" * 16
+    head = b"MZ" + b"\0" * 58 + struct.pack("<I", 64) + b"PE\0\0" + coff + opt + sec
+    return head + b"\0" * (0x400 - len(head)) + rsrc

@@ -77,12 +77,20 @@ class Games(unittest.TestCase):
         _, args, src = bn.launch_spec(self.prefix, g["newgame"], learned)
         self.assertEqual((args, src), ("-foo ng -bar", "learned"))
 
-    def test_no_usable_exe_returns_none_for_launcher_fallback(self):
-        self.fs.add_game("ng", "ng", "New Game", "New Game", "New.exe")
+    def _no_reported_exe(self, code):
         agg = self.prefix / "pfx" / bn.AGGREGATE_REL
-        agg.write_text(json.dumps({"installed": [{"product_id": "ng", "name": "NG", "icon_path": ""}]}))
-        g = bn.installed_games(self.prefix)[0]
-        self.assertIsNone(bn.launch_spec(self.prefix, g, {}))
+        agg.write_text(json.dumps({"installed": [{"product_id": code, "name": "NG", "icon_path": ""}]}))
+
+    def test_exe_is_found_in_the_install_dir_when_battlenet_reports_none(self):
+        self.fs.add_game("ng", "ng", "New Game", "New Game", "New.exe")
+        self._no_reported_exe("ng")
+        exe, args, src = bn.launch_spec(self.prefix, bn.installed_games(self.prefix)[0], {})
+        self.assertEqual((exe.name, args, src), ("New.exe", "-uid ng", "derived, unverified"))
+
+    def test_only_helper_exes_means_fall_back_to_the_launcher(self):
+        self.fs.add_game("ng", "ng", "New Game", "New Game", "CrashReporter.exe")
+        self._no_reported_exe("ng")
+        self.assertIsNone(bn.launch_spec(self.prefix, bn.installed_games(self.prefix)[0], {}))
 
     def test_launch_options_shape(self):
         p = Path("/p")
@@ -121,3 +129,31 @@ class Helpers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BestExe(unittest.TestCase):
+    def setUp(self):
+        self._t = tempfile.TemporaryDirectory()
+        self.addCleanup(self._t.cleanup)
+        self.d = Path(self._t.name)
+
+    def make(self, name, size):
+        (self.d / name).write_bytes(b"x" * size)
+        return self.d / name
+
+    def test_launcher_stub_is_skipped_for_the_real_game(self):
+        """Diablo IV: Battle.net reports the 5 MB launcher stub, the game is the big exe."""
+        stub = self.make("Diablo IV Launcher.exe", 5000)
+        game = self.make("Diablo IV.exe", 58000)
+        self.make("BlizzardError.exe", 2000)
+        self.assertEqual(bn.best_exe(self.d, stub), game)
+
+    def test_reported_exe_is_kept_when_it_is_not_a_helper(self):
+        reported = self.make("Small.exe", 10)
+        self.make("Bigger.exe", 9999)
+        self.assertEqual(bn.best_exe(self.d, reported), reported)
+
+    def test_helper_only_folder_gives_none(self):
+        self.make("unins000.exe", 10)
+        self.make("CrashHandler.exe", 10)
+        self.assertIsNone(bn.best_exe(self.d, None))

@@ -208,3 +208,185 @@ class Desktop(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Prune(Base):
+    """Cleanup of shortcuts for games that are no longer installed."""
+
+    def setUp(self):
+        super().setUp()
+        self.fs.add_game("s1", "s1", "StarCraft", "StarCraft", "x86_64/StarCraft.exe")
+        cli.cmd_sync(self.env, args())
+        self.names = set(self.by_name())
+        self.assertIn("StarCraft", self.names)
+        self.assertIn("Warcraft II Battle.net Edition", self.names)
+
+    def uninstall(self, code):
+        """Remove a game the way Battle.net does: its folder and its product.db record."""
+        i = [k for k, r in enumerate(self.fs.aggregate) if r["product_id"] == code][0]
+        folder = self.fs.aggregate[i]["icon_path"].rsplit("/", 1)[0].split("/", 1)[1]
+        import shutil
+        shutil.rmtree(self.fs.prefix / "pfx/drive_c" / folder.replace("Program Files (x86)", "Program Files (x86)"))
+        del self.fs.records[i]
+        del self.fs.aggregate[i]
+        self.fs.flush_db()
+
+    def test_explicit_prune_removes_only_that_shortcut_and_keeps_keys_contiguous(self):
+        before = self.fs.shortcuts()
+        self.uninstall("w2bn")
+        cli.cmd_sync(self.env, args(prune=True))
+        after = self.fs.shortcuts()
+        self.assertEqual(set(self.by_name()), self.names - {"Warcraft II Battle.net Edition"})
+        self.assertEqual(sorted(after, key=int), [str(i) for i in range(len(after))])
+        keep = {e["appname"]: e for e in before.values()}
+        for e in after.values():                          # nothing else was altered
+            self.assertEqual(e, keep[e["appname"]])
+        self.assertNotIn("w2", cli.load_state(self.env)["games"])
+        self.assertIn("s1", cli.load_state(self.env)["games"])
+        self.assertTrue(self.fs.prefix.is_dir())          # the Wine prefix is never touched
+
+    def test_scripted_run_without_prune_only_reports(self):
+        self.uninstall("w2bn")
+        snap = self.env.shortcuts_path.read_bytes()
+        cli.cmd_sync(self.env, args())                    # --yes, no --prune
+        self.assertEqual(self.env.shortcuts_path.read_bytes(), snap)
+
+    def test_interactive_run_asks_per_game_and_respects_no(self):
+        self.uninstall("w2bn")
+        snap = self.env.shortcuts_path.read_bytes()
+        with mock.patch("sys.stdin.isatty", return_value=True), \
+                mock.patch("builtins.input", return_value="n") as ask:
+            cli.cmd_sync(self.env, args(yes=False))
+        ask.assert_called_once()
+        self.assertEqual(self.env.shortcuts_path.read_bytes(), snap)
+
+    def test_interactive_yes_removes_it(self):
+        self.uninstall("w2bn")
+        with mock.patch("sys.stdin.isatty", return_value=True), \
+                mock.patch("builtins.input", return_value="y"):
+            cli.cmd_sync(self.env, args(yes=False))
+        self.assertNotIn("Warcraft II Battle.net Edition", self.by_name())
+
+    def test_no_prune_flag_and_dry_run_never_remove(self):
+        self.uninstall("w2bn")
+        snap = self.env.shortcuts_path.read_bytes()
+        cli.cmd_sync(self.env, args(prune=False))
+        cli.cmd_sync(self.env, args(prune=True, dry_run=True))
+        self.assertEqual(self.env.shortcuts_path.read_bytes(), snap)
+
+    def test_unreadable_battlenet_files_remove_nothing_even_with_prune(self):
+        """If product.db vanished every game would look uninstalled; that must not delete."""
+        (self.fs.prefix / "pfx" / bn.PRODUCT_DB_REL).unlink()
+        snap = self.env.shortcuts_path.read_bytes()
+        cli.cmd_sync(self.env, args(prune=True))
+        self.assertEqual(self.env.shortcuts_path.read_bytes(), snap)
+
+    def test_missing_launcher_exe_also_blocks_pruning(self):
+        self.uninstall("w2bn")
+        bn.launcher_exe(self.fs.prefix).unlink()
+        snap = self.env.shortcuts_path.read_bytes()
+        cli.cmd_sync(self.env, args(prune=True))
+        self.assertEqual(self.env.shortcuts_path.read_bytes(), snap)
+
+    def test_launcher_and_users_own_shortcuts_are_never_removed(self):
+        state = cli.load_state(self.env)
+        state["games"]["bogus"] = 222            # state wrongly claims the launcher is a game
+        cli.save_state(self.env, state)
+        self.uninstall("w2bn")
+        cli.cmd_sync(self.env, args(prune=True))
+        names = set(self.by_name())
+        self.assertIn("Battle.net", names)
+        self.assertIn("My Emulator", names)
+
+    def test_reinstalled_game_is_added_back(self):
+        self.uninstall("w2bn")
+        cli.cmd_sync(self.env, args(prune=True))
+        self.fs.add_game("w2bn", "w2", "Warcraft II", "Warcraft II Battle.net Edition",
+                         "Warcraft II BNE.exe")
+        cli.cmd_sync(self.env, args())
+        self.assertIn("Warcraft II Battle.net Edition", self.by_name())
+
+    def test_failed_write_restores_the_removed_shortcut(self):
+        self.uninstall("w2bn")
+        snap = self.env.shortcuts_path.read_bytes()
+        config = self.env.config_path.read_bytes()
+        # fail after shortcuts.vdf has already been rewritten without the shortcut
+        with mock.patch.object(steam.Session, "save_config", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                cli.cmd_sync(self.env, args(prune=True))
+        self.assertEqual(self.env.shortcuts_path.read_bytes(), snap)
+        self.assertEqual(self.env.config_path.read_bytes(), config)
+        self.assertIn("Warcraft II Battle.net Edition", self.by_name())
+
+
+class LauncherIcon(Base):
+    def setUp(self):
+        super().setUp()
+        from .helpers import build_pe
+        bn.launcher_exe(self.fs.prefix).write_bytes(build_pe([(0, 0, 32, b"logo")]))
+        self.icon = self.env.grid_dir / "222_icon.png"
+
+    def launcher(self):
+        return self.by_name()["Battle.net"]
+
+    def test_icon_is_extracted_from_the_launcher_exe_and_set(self):
+        cli.cmd_sync(self.env, args(no_art=False))
+        self.assertEqual(self.icon.read_bytes(), b"\x89PNG\r\n\x1a\nlogo")
+        self.assertEqual(self.launcher()["icon"], str(self.icon))
+
+    def test_second_run_is_a_no_op(self):
+        cli.cmd_sync(self.env, args(no_art=False))
+        snap = (self.env.shortcuts_path.read_bytes(), self.icon.read_bytes())
+        self.m_stop.reset_mock()
+        cli.cmd_sync(self.env, args(no_art=False))
+        self.assertEqual((self.env.shortcuts_path.read_bytes(), self.icon.read_bytes()), snap)
+        self.m_stop.assert_not_called()
+
+    def test_a_icon_the_user_chose_is_never_replaced(self):
+        sc = self.fs.shortcuts()
+        sc["1"]["icon"] = "/my/own.png"
+        self.fs.write_shortcuts(sc)
+        cli.cmd_sync(self.env, args(no_art=False))
+        self.assertEqual(self.launcher()["icon"], "/my/own.png")
+
+    def test_art_the_user_already_placed_in_another_format_is_kept(self):
+        self.env.grid_dir.mkdir(parents=True)
+        mine = self.env.grid_dir / "222_icon.ico"
+        mine.write_bytes(b"booped")
+        cli.cmd_sync(self.env, args(no_art=False))
+        self.assertEqual(mine.read_bytes(), b"booped")
+        self.assertFalse(self.icon.exists())
+        self.assertEqual(self.launcher()["icon"], str(mine))
+
+    def test_no_art_and_dry_run_write_nothing(self):
+        cli.cmd_sync(self.env, args(no_art=True))
+        self.assertFalse(self.icon.exists())
+        cli.cmd_sync(self.env, args(no_art=False, dry_run=True))
+        self.assertFalse(self.icon.exists())
+
+    def test_unreadable_exe_is_reported_not_fatal(self):
+        bn.launcher_exe(self.fs.prefix).write_bytes(b"not an exe")
+        cli.cmd_sync(self.env, args(no_art=False))            # must not raise
+        self.assertEqual(self.launcher()["icon"], "")
+
+
+class StaleState(Base):
+    def test_state_forgets_a_shortcut_the_user_already_removed_in_steam(self):
+        cli.cmd_sync(self.env, args())
+        self.assertIn("w2", cli.load_state(self.env)["games"])
+        sc = {k: e for k, e in self.fs.shortcuts().items() if e["appname"] != "Warcraft II Battle.net Edition"}
+        self.fs.write_shortcuts({str(i): e for i, e in enumerate(sc.values())})
+        self.fs.records.clear()
+        self.fs.aggregate.clear()
+        self.fs.flush_db()
+        cli.cmd_sync(self.env, args())
+        self.assertNotIn("w2", cli.load_state(self.env)["games"])
+
+    def test_dry_run_leaves_state_alone(self):
+        cli.cmd_sync(self.env, args())
+        self.fs.write_shortcuts({"0": self.fs.other, "1": self.fs.launcher})
+        self.fs.records.clear()
+        self.fs.aggregate.clear()
+        self.fs.flush_db()
+        cli.cmd_sync(self.env, args(dry_run=True))
+        self.assertIn("w2", cli.load_state(self.env)["games"])
