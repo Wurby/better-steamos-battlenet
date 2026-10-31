@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
+*.egg-info/
+# never commit a user's Steam data, backups, keys or per-machine state
+*.bak-*
+state.json
+*.key
