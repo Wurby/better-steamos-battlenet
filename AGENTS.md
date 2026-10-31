@@ -1,22 +1,71 @@
 # AGENTS.md
 
 Source of truth for anyone (human or AI agent) working in this repo.
-`CLAUDE.md` only points here.
+`CLAUDE.md` only points here; edit this file, not that one.
 
 ## What this is
-`bnet-steam` adds Battle.net and each installed Battle.net game to Steam as
-non-Steam shortcuts on Linux/SteamOS, running under Proton. It installs the
-launcher into its own Wine prefix, then keeps one Steam shortcut per game in sync.
+`bnet-steam` adds Battle.net and each installed Battle.net game to Steam as non-Steam
+shortcuts on Linux/SteamOS, running under Proton. It installs the launcher into its own
+Wine prefix, then keeps one Steam shortcut per game in sync. Python 3, stdlib only.
 
-## Status
-Prototype state: a single script, `bnet_steam.py`, proven on one SteamOS
-machine with StarCraft and Warcraft II. See `TODOS.md` for the open work.
+## Layout
+```
+bnet_steam/
+  vdf.py        binary VDF codec (shortcuts.vdf); text edit for config.vdf CompatToolMapping
+  steam.py      Steam discovery, Proton detection, backups, atomic writes, write_session
+  battlenet.py  product.db / aggregate.json parsing, launch specs, installer download
+  art.py        default library art via ffmpeg
+  cli.py        commands and argument parsing
+tests/          unittest suite; helpers.py builds a fake Steam + Battle.net prefix
+```
+Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s tests -t . -b`.
 
 ## Hard rules
-- Steam files (`shortcuts.vdf`, `config.vdf`) may only be edited with Steam closed,
-  after a backup. Never kill Steam; ask it to shut down and wait.
-- Removing a non-Steam shortcut makes Steam delete `steamapps/compatdata/<appid>`.
-  Keep our Wine prefix outside `compatdata` and never delete shortcuts by default.
-- Do not commit personal data: Steam IDs, home paths, backups, API keys, state files.
+- **All Steam-file writes go through `steam.write_session`.** It confirms, closes Steam,
+  backs up, gives validated atomic writes, rolls back on error, and restarts Steam.
+  Do not write `shortcuts.vdf`/`config.vdf` any other way.
+- Plans are computed read-only first and applied to a **fresh** read inside the session
+  (Steam rewrites those files on exit).
+- Never force-kill Steam. Never delete shortcuts, prefixes, or game files by default.
+- Removing a non-Steam shortcut makes Steam delete `steamapps/compatdata/<appid>`. Our
+  prefix lives in the data dir, outside `compatdata`. Keep it that way.
+- For an existing shortcut, **read the stored appid**; never recompute it. Steam-UI-created
+  shortcuts use a different appid scheme. Updates keep the appid.
+- Do not overwrite user art or user-set shortcut fields (icon etc.).
+- Tests must never touch the real Steam dir. Use `tests/helpers.FakeSteam`.
+- Do not commit personal data: Steam IDs, home paths, backups, API keys, `state.json`.
 - Do not publish (push, post, release) without the owner's explicit say-so.
-- Claims about what works must match what was actually tested; say "unverified" otherwise.
+- Claims about what works must match what was tested; write "unverified" otherwise.
+
+## Verified facts (on SteamOS, native Steam, Proton 11)
+- `shortcuts.vdf` round-trips byte-exact through `vdf.py` on a real 19-entry file.
+- Proton 11 internal compat-tool name is `proton_11` (from Steam's logs); `proton_9`,
+  `proton_experimental`, `proton_hotfix` seen in config. Other numbered names follow the
+  pattern but are unverified.
+- Game start commands seen from the launcher's Play button:
+  `StarCraft.exe -launch -uid s1` (x86_64 build) and `Warcraft II BNE.exe -uid w2`.
+  The `-uid` value is the product **uid**, not the code (`w2` vs `w2bn`).
+- In our tests `Battle.net.exe --exec="launch <code>"` only *selected* the game page and did
+  not start it (tried on a cold launcher and sent to a running, logged-in one).
+- StarCraft's exe, run through its Steam shortcut with the launcher closed, starts. (Not
+  separately confirmed for other games.)
+- `product.db` is protobuf: `ProductInstall{1 uid, 2 code, 3 settings{1 install_path}}`.
+- `Agent/aggregate.json` lists installed games: `product_id`, `name`, `icon_path`
+  (primary exe, but the x86 build for StarCraft), `box_art_uri`, `logo_art_uri`.
+- Steam keeps a game "running" until its whole launch session exits. After StarCraft's
+  window closed, `StarCraft.exe` and `Agent.exe` stayed alive about 20 s, and Steam cleared
+  ~3 s after the last one exited. It looks like the game's own shutdown; the cause was not
+  isolated.
+
+## Unverified / known gaps
+- Derived default launch args (`-uid <uid>`) for any game other than the two above.
+- Flatpak Steam (refused with a message), non-SteamOS distros, Python < 3.14 (tested on 3.14 only).
+- SGDBoop URI behaviour (we only coexist with its output; we never call it).
+- Blizzard endpoints (`downloader.battle.net`, `bnetxboxassets.akamaized.net`) are
+  undocumented and may change.
+
+## Conventions
+- Match the surrounding style; comments explain *why*, not *what*.
+- Expected failures raise `BnetSteamError`; the CLI prints it and exits 1.
+- A bug fix gets a test that fails without it. Mutate-check safety tests when changing them.
+- Keep `README.md`, this file, and `TODOS.md` in step with behaviour changes.

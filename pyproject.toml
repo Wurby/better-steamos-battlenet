@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bnet-steam"
+version = "0.1.0"
+description = "Add Battle.net and its installed games to Steam as non-Steam shortcuts on Linux/SteamOS"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+bnet-steam = "bnet_steam.cli:main"
+
+[tool.setuptools]
+packages = ["bnet_steam"]

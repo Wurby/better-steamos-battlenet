@@ -1,14 +1,24 @@
 # TODOs
 
 ## Before going public
-- [ ] Safety pass: restore command, confirmation prompt, atomic writes, rollback, tests
-- [ ] Generalization pass: Steam path/user detection, Proton detection, no hard-coded paths
-- [ ] README, license (owner to choose license and holder), unofficial/not-affiliated notice
-- [ ] Audit repo history for personal data before any push
-- [ ] Test on a second machine
+- [x] Repo with AGENTS.md / CLAUDE.md / TODOS.md
+- [x] Safety pass: confirm prompt, backups, restore command, atomic writes, rollback,
+      strict round-trip check, tests (64, mutation-checked)
+- [x] Generalization pass: Steam root/user detection, Proton detection, XDG data dir,
+      generated desktop entries (no hard-coded paths)
+- [ ] **Choose a license and copyright holder** (README says "Not yet chosen"; no LICENSE file)
+- [ ] Set a real git identity and rewrite author on the history (currently a placeholder)
+- [ ] Audit the history for personal data before any push
+- [ ] Test on a second machine and a second Steam user
+- [ ] Test the minimum Python version we claim (3.9); only 3.14 has been run
+- [ ] Check prior art (BoilR, Steam ROM Manager, Lutris) before claiming novelty
+- [ ] CI that runs the unit tests
 
 ## Later
 - [ ] Flatpak Steam support
-- [ ] Optional SteamGridDB API key for better art
-- [ ] Extract the Battle.net launcher icon from Battle.net.exe
-- [ ] Verify launch arguments for more Blizzard games
+- [ ] Verify launch arguments for more Blizzard games; grow `VERIFIED`
+- [ ] Optional SteamGridDB API key for portrait/hero/logo art (incl. the launcher shortcut)
+- [ ] Extract the Battle.net launcher icon from `Battle.net.exe` as default launcher art
+- [ ] Opt-in `prune` for shortcuts of uninstalled games (must warn about compatdata deletion)
+- [ ] Handle Battle.net updates that change `product.db` layout
+- [ ] Screenshots / short demo for the README
