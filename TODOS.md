@@ -7,13 +7,17 @@
 - [x] Guided `learn` during `sync`, real-game-exe heuristic, cleanup (`--prune`), launcher icon
 - [x] Generalization pass: Steam root/user detection, Proton detection, XDG data dir,
       generated desktop entries (no hard-coded paths)
-- [ ] **Choose a license and copyright holder** (README says "Not yet chosen"; no LICENSE file)
+- [x] License: MIT, "bnet-steam contributors" (the owner wants to hand the project to the community)
 - [ ] Set a real git identity and rewrite author on the history (currently a placeholder)
 - [ ] Audit the history for personal data before any push
 - [ ] Test on a second machine and a second Steam user
 - [ ] Test the minimum Python version we claim (3.9); only 3.14 has been run
 - [ ] Check prior art (BoilR, Steam ROM Manager, Lutris) before claiming novelty
 - [ ] CI that runs the unit tests
+
+- [ ] Create art inside the write session, after the user confirms (currently before)
+- [ ] Confirm WoW Classic Era starts from its Steam shortcut (the launcher reaches the login
+      screen with the same command; the shortcut itself is untested)
 
 ## Later
 - [ ] Flatpak Steam support

@@ -51,9 +51,9 @@ class Games(unittest.TestCase):
         self.assertEqual(games[0]["name"], "Warcraft II Battle.net Edition")
 
     def test_name_falls_back_to_code_without_aggregate(self):
-        self.fs.add_game("zz", "zz", "Zed", "Zed Game", "Zed.exe")
+        self.fs.add_game("wow_classic_era", "wow_classic_era", "Zed", "Zed Game", "Zed.exe")
         (self.prefix / "pfx" / bn.AGGREGATE_REL).write_text("{not json")
-        self.assertEqual(bn.installed_games(self.prefix)[0]["name"], "ZZ")
+        self.assertEqual(bn.installed_games(self.prefix)[0]["name"], "Wow Classic Era")
 
     def test_launch_spec_precedence_learned_then_verified_then_derived(self):
         self.fs.add_game("s1", "s1", "StarCraft", "StarCraft", "x86/StarCraft.exe")
@@ -131,6 +131,44 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class CaseInsensitive(unittest.TestCase):
+    def setUp(self):
+        self._t = tempfile.TemporaryDirectory()
+        self.addCleanup(self._t.cleanup)
+        self.d = Path(self._t.name)
+        (self.d / "_classic_era_").mkdir()
+        (self.d / "_classic_era_/WowClassic.exe").write_text("")
+
+    def test_finds_the_real_file_whatever_the_case_and_returns_its_on_disk_name(self):
+        got = bn.resolve_ci(self.d, "_classic_era_/WoWClassic.exe")
+        self.assertEqual(got.name, "WowClassic.exe")
+        self.assertEqual(bn.resolve_ci(self.d, "_CLASSIC_ERA_/wowclassic.EXE").name, "WowClassic.exe")
+
+    def test_exact_name_wins_and_missing_is_none(self):
+        (self.d / "A.exe").write_text("")
+        self.assertEqual(bn.resolve_ci(self.d, "A.exe").name, "A.exe")
+        self.assertIsNone(bn.resolve_ci(self.d, "nope.exe"))
+        self.assertIsNone(bn.resolve_ci(self.d, "missing_dir/x.exe"))
+
+    def test_art_code_fallbacks_go_from_specific_to_parent(self):
+        self.assertEqual(bn.art_codes("wow_classic_era"), ["wow_classic_era", "wow_classic", "wow"])
+        self.assertEqual(bn.art_codes("s1"), ["s1"])
+
+
+class LearnedSpecCase(unittest.TestCase):
+    def test_learned_exe_whose_case_differs_from_disk_still_launches_the_real_file(self):
+        fs = FakeSteam()
+        self.addCleanup(fs.cleanup)
+        fs.add_game("wow_classic_era", "wow_classic_era", "World of Warcraft", "WoW Classic Era",
+                    "_classic_era_/WowClassic.exe")
+        g = bn.installed_games(fs.prefix)[0]
+        state = {"learned": {"wow_classic_era": {"exe": "_classic_era_/WoWClassic.exe",
+                                                 "args": "-launcherlogin -uid {uid} -initialgamemode=cera"}}}
+        exe, args, src = bn.launch_spec(fs.prefix, g, state)
+        self.assertEqual((exe.name, src), ("WowClassic.exe", "learned"))
+        self.assertEqual(args, "-launcherlogin -uid wow_classic_era -initialgamemode=cera")
+
+
 class BestExe(unittest.TestCase):
     def setUp(self):
         self._t = tempfile.TemporaryDirectory()
@@ -152,6 +190,22 @@ class BestExe(unittest.TestCase):
         reported = self.make("Small.exe", 10)
         self.make("Bigger.exe", 9999)
         self.assertEqual(bn.best_exe(self.d, reported), reported)
+
+    def test_real_exe_one_folder_down_is_found_when_the_root_has_only_a_launcher(self):
+        """World of Warcraft: root has only its launcher stub; the game is in _classic_era_/."""
+        (self.d / "_classic_era_").mkdir()
+        (self.d / "_classic_era_/UTILS").mkdir()
+        self.make("World of Warcraft Launcher.exe", 4000)
+        game = self.make("_classic_era_/WowClassic.exe", 64000)
+        self.make("_classic_era_/BlizzardError.exe", 700)
+        self.make("_classic_era_/UTILS/BlizzardBrowser.exe", 2000)
+        self.assertEqual(bn.best_exe(self.d, None), game)
+
+    def test_root_exes_win_over_deeper_ones(self):
+        (self.d / "sub").mkdir()
+        root = self.make("Game.exe", 10)
+        self.make("sub/Bigger.exe", 9999)
+        self.assertEqual(bn.best_exe(self.d, None), root)
 
     def test_helper_only_folder_gives_none(self):
         self.make("unins000.exe", 10)

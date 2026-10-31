@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest import mock
 
 from bnet_steam import battlenet as bn
-from bnet_steam import cli, steam, vdf
+from bnet_steam import art, cli, steam, vdf
 from bnet_steam.errors import BnetSteamError
 
 from .helpers import FakeSteam, args
@@ -325,6 +325,14 @@ class LauncherIcon(Base):
         from .helpers import build_pe
         bn.launcher_exe(self.fs.prefix).write_bytes(build_pe([(0, 0, 32, b"logo")]))
         self.icon = self.env.grid_dir / "222_icon.png"
+        self.composed = []
+
+        def fake(icon, dest, w, h, fg):                 # the real one needs a decodable image
+            self.composed.append((dest.name, w, h, fg))
+            dest.write_bytes(b"composed")
+        patcher = mock.patch.object(art, "_brand_compose", side_effect=fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def launcher(self):
         return self.by_name()["Battle.net"]
@@ -390,3 +398,66 @@ class StaleState(Base):
         self.fs.flush_db()
         cli.cmd_sync(self.env, args(dry_run=True))
         self.assertIn("w2", cli.load_state(self.env)["games"])
+
+
+class LauncherArt(LauncherIcon):
+    """The launcher also gets a logo, portrait, wide capsule and hero."""
+
+    def test_all_images_are_created_with_the_right_shapes(self):
+        cli.cmd_sync(self.env, args(no_art=False))
+        g = self.env.grid_dir
+        for name in ("222p.jpg", "222.jpg", "222_hero.jpg", "222_icon.png", "222_logo.png"):
+            self.assertTrue((g / name).exists(), name)
+        self.assertEqual(sorted(self.composed), [("222.jpg", 920, 430, 300),
+                                                 ("222_hero.jpg", 3840, 1240, 0),
+                                                 ("222p.jpg", 600, 900, 380)])
+        self.assertEqual((g / "222_logo.png").read_bytes(), self.icon.read_bytes())
+
+    def test_second_run_creates_nothing_new(self):
+        cli.cmd_sync(self.env, args(no_art=False))
+        self.composed.clear()
+        snap = {p.name: p.read_bytes() for p in self.env.grid_dir.iterdir()}
+        cli.cmd_sync(self.env, args(no_art=False))
+        self.assertEqual(self.composed, [])
+        self.assertEqual({p.name: p.read_bytes() for p in self.env.grid_dir.iterdir()}, snap)
+
+    def test_art_the_user_placed_in_any_format_is_never_replaced(self):
+        self.env.grid_dir.mkdir(parents=True)
+        (self.env.grid_dir / "222p.png").write_bytes(b"my portrait")
+        (self.env.grid_dir / "222_hero.webp").write_bytes(b"my hero")
+        (self.env.grid_dir / "222_logo.png").write_bytes(b"my logo")
+        cli.cmd_sync(self.env, args(no_art=False))
+        self.assertEqual([c[0] for c in self.composed], ["222.jpg"])       # only the wide one
+        self.assertEqual((self.env.grid_dir / "222p.png").read_bytes(), b"my portrait")
+        self.assertEqual((self.env.grid_dir / "222_logo.png").read_bytes(), b"my logo")
+        self.assertFalse((self.env.grid_dir / "222p.jpg").exists())
+
+    def test_without_ffmpeg_icon_and_logo_still_appear(self):
+        with mock.patch("shutil.which", return_value=None):
+            cli.cmd_sync(self.env, args(no_art=False))
+        self.assertEqual(self.composed, [])
+        self.assertTrue(self.icon.exists())
+        self.assertTrue((self.env.grid_dir / "222_logo.png").exists())
+
+    def test_dry_run_creates_nothing(self):
+        cli.cmd_sync(self.env, args(no_art=False, dry_run=True))
+        self.assertEqual(self.composed, [])
+        self.assertFalse(self.env.grid_dir.exists())
+
+
+@unittest.skipUnless(__import__("shutil").which("ffmpeg"), "ffmpeg not installed")
+class RealCompositing(unittest.TestCase):
+    def test_real_ffmpeg_produces_exact_sizes_for_every_shape(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as t:
+            t = Path(t)
+            icon = t / "icon.png"
+            subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+                            "color=c=red:s=256x256", "-frames:v", "1", str(icon)], check=True)
+            for w, h, fg in ((600, 900, 380), (920, 430, 300), (3840, 1240, 0)):
+                out = t / f"{w}.jpg"
+                art._brand_compose(icon, out, w, h, fg)
+                probe = subprocess.run(
+                    ["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of",
+                     "csv=p=0", str(out)], capture_output=True, text=True).stdout.strip()
+                self.assertEqual(probe, f"{w},{h}")

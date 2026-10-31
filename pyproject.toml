@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Add Battle.net and its installed games to Steam as non-Steam shortcuts on Linux/SteamOS"
 readme = "README.md"
 requires-python = ">=3.9"
+license = { text = "MIT" }
 dependencies = []
 
 [project.scripts]

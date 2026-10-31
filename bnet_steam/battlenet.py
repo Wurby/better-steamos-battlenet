@@ -52,6 +52,30 @@ def host_path(prefix, win_path):
     return prefix / "pfx" / "drive_c" / win_path.replace("\\", "/").split(":/", 1)[-1]
 
 
+def resolve_ci(base, rel):
+    """base/rel with every component matched case-insensitively against what is on disk
+    (Wine ignores case, Linux may not; Blizzard's process names differ in case from the
+    files). Returns the real path, or None if it does not exist."""
+    p = Path(base)
+    for part in Path(rel).parts:
+        try:
+            names = os.listdir(p)
+        except OSError:
+            return None
+        hit = part if part in names else next((n for n in names if n.lower() == part.lower()), None)
+        if hit is None:
+            return None
+        p = p / hit
+    return p
+
+
+def art_codes(code):
+    """wow_classic_era -> [wow_classic_era, wow_classic, wow]: product ids whose art may
+    stand in when Battle.net has not listed the game itself yet."""
+    parts = code.split("_")
+    return ["_".join(parts[:i]) for i in range(len(parts), 0, -1)]
+
+
 def launcher_exe(prefix):
     return prefix / "pfx" / LAUNCHER_REL
 
@@ -160,10 +184,11 @@ def installed_games(prefix):
             continue
         if host_path(prefix, r["install_path"]).is_dir():
             a = agg.get(r["code"], {})
-            out.append({**r, "name": a.get("name") or r["code"].upper(),
+            out.append({**r, "name": a.get("name") or r["code"].replace("_", " ").title(),
                         "icon_path": a.get("icon_path", ""),
                         "box_art": a.get("box_art_uri", ""),
-                        "logo_art": a.get("logo_art_uri", "")})
+                        "logo_art": a.get("logo_art_uri", ""),
+                        "art_codes": art_codes(r["code"])})
     return out
 
 
@@ -179,8 +204,12 @@ def best_exe(gdir, reported):
         return any(w in p.name.lower() for w in NOT_THE_GAME)
     if reported and reported.exists() and not helper(reported):
         return reported
-    cands = [p for p in gdir.glob("*.exe") if not helper(p)]
-    return max(cands, key=lambda p: p.stat().st_size, default=None)
+    # prefer the install root; some games (WoW) keep the real exe one folder down
+    for pattern in ("*.exe", "*/*.exe"):
+        cands = [p for p in gdir.glob(pattern) if not helper(p)]
+        if cands:
+            return max(cands, key=lambda p: p.stat().st_size)
+    return None
 
 
 def launch_spec(prefix, g, state):
@@ -193,9 +222,10 @@ def launch_spec(prefix, g, state):
     if spec is None:
         spec, source = {"exe": None, "args": DEFAULT_ARGS}, "derived, unverified"
     if spec["exe"]:
-        exe = gdir / spec["exe"]
+        exe = resolve_ci(gdir, spec["exe"])
     else:
-        reported = host_path(prefix, g["icon_path"]) if g["icon_path"] else None
+        reported = (resolve_ci(prefix / "pfx" / "drive_c", g["icon_path"].split(":/", 1)[-1])
+                    if g["icon_path"] else None)
         exe = best_exe(gdir, reported)
     if exe is None or not exe.exists():
         return None

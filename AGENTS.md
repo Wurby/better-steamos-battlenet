@@ -38,7 +38,8 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
   never the launcher, and does nothing if Battle.net's own files look unreadable (a glitch
   would make every game look uninstalled). It is opt-in: asked per game on a terminal,
   `--prune` to do it unasked, report-only when scripted or `--dry-run`.
-- Tests must never touch the real Steam dir. Use `tests/helpers.FakeSteam`.
+- Tests must never touch the real Steam dir (use `tests/helpers.FakeSteam`) or the network
+  (`tests/__init__.py` disables `urlopen`; mock `_fetch` / `download_installer`).
 - Do not commit personal data: Steam IDs, home paths, backups, API keys, `state.json`.
 - Do not publish (push, post, release) without the owner's explicit say-so.
 - Claims about what works must match what was tested; write "unverified" otherwise.
@@ -60,6 +61,17 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
   `Diablo IV.exe -nostreamline -sso -launch -uid fenris`; Battle.net reports the 5 MB
   `Diablo IV Launcher.exe` stub as its exe, which is not the game. Recorded with `learn`;
   playing it from the Steam shortcut was not confirmed.
+- World of Warcraft Classic Era (uid and code `wow_classic_era`) is started as
+  `_classic_era_/WoWClassic.exe -launcherlogin -uid wow_classic_era -initialgamemode=cera`.
+  The real exe is one folder below the install root (the root only has a launcher stub),
+  and the process name's case (`WoWClassic.exe`) differs from the file on disk
+  (`WowClassic.exe`): Wine ignores case, Linux may not, so lookups are case-insensitive and
+  the shortcut uses the on-disk name. Recorded with `learn`; the game reached its login screen
+  when started by the launcher. Starting it from the Steam shortcut was not confirmed.
+- Battle.net lists a game in `aggregate.json` lazily; until it does there is no name or art URL.
+  Blizzard's art CDN pattern `bnetxboxassets.akamaized.net/<code>/{box,logo}-enUS.webp` held for
+  `s1`, `fenris`, `wow`, `wow_classic` but 404s for `wow_classic_era`; we try the code, then its
+  parents (`wow_classic_era` -> `wow_classic` -> `wow`).
 - Launch args cannot be derived from install metadata, so `sync` guides the user through
   pressing Play once for any game it can only guess at.
 - The Battle.net logo is a 256x256 PNG-compressed icon inside `Battle.net.exe`.
@@ -71,6 +83,8 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
   isolated.
 
 ## Unverified / known gaps
+- Art is created before the confirmation prompt (new files only, but a cancelled sync can
+  still leave images behind). Fix: create art inside the write session, after confirmation.
 - Derived default launch args (`-uid <uid>`) for any game other than the verified ones;
   Diablo IV proved the guess can be wrong, hence the guided `learn`.
 - Games whose sign-in needs the launcher running (`-sso` hints at it); not yet tested.
@@ -80,6 +94,10 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
 - SGDBoop URI behaviour (we only coexist with its output; we never call it).
 - Blizzard endpoints (`downloader.battle.net`, `bnetxboxassets.akamaized.net`) are
   undocumented and may change.
+
+## License
+MIT, copyright "bnet-steam contributors". Contributions are accepted on the same terms. Do not add
+Blizzard or Valve artwork or trademarks to the repo.
 
 ## Conventions
 - Match the surrounding style; comments explain *why*, not *what*.

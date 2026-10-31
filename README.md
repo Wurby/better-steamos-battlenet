@@ -81,7 +81,9 @@ with which one it used.
 
 ## Artwork
 Blizzard only provides a square key-art tile and a small icon, so portrait, wide and hero
-images are built from the tile over a blurred copy of itself. Art that already exists for a
+images are built from the tile over a blurred copy of itself. If Battle.net has not listed a
+game yet, the art of its parent product is used (WoW Classic Era borrows WoW Classic's).
+The Battle.net shortcut gets the launcher's own logo on a gradient, read from your install. Art that already exists for a
 shortcut, in any common format (for example applied with [SGDBoop](https://www.steamgriddb.com/boop)),
 is never replaced, so you can pick better art on steamgriddb.com and it will stick.
 
@@ -92,7 +94,8 @@ is never replaced, so you can pick better art on steamgriddb.com and it will sti
 - Native Steam only; one Wine prefix; x86-64 Linux/SteamOS tested only.
 - Anti-cheat titles may not work under Proton, and running them there may carry account risk.
   Check each game's support status yourself.
-- The Battle.net shortcut only gets an icon, not portrait/hero art.
+- Battle.net lists new games lazily, so a just-installed game may show a rough name and
+  parent-product art until the next `sync` after Battle.net catches up (names then update in place).
 - Whether games that sign in through the launcher (Diablo IV passes `-sso`) start with the
   launcher closed is untested.
 
@@ -104,4 +107,6 @@ See [AGENTS.md](AGENTS.md) for architecture and rules for contributors, and
 [TODOS.md](TODOS.md) for open work.
 
 ## License
-Not yet chosen.
+[MIT](LICENSE). This covers this project's code only. "Battle.net", Blizzard's game names
+and artwork, and Valve's trademarks belong to their owners; the tool downloads Blizzard's
+images onto your own machine and never redistributes them.

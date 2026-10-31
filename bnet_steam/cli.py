@@ -148,8 +148,8 @@ def cmd_sync(env, args):
     existing = steam.by_appid(data["shortcuts"])
     adds, updates, art_written = [], [], 0
     if not args.no_art and bn.launcher_exe(prefix).exists():
-        icon, written = art.ensure_launcher_icon(env, launcher["appid"],
-                                                 bn.launcher_exe(prefix), args.dry_run)
+        icon, written = art.ensure_launcher_art(env, launcher["appid"],
+                                                bn.launcher_exe(prefix), args.dry_run)
         art_written += len(written)
         if icon and not launcher.get("icon"):       # never replace an icon the user chose
             print(f"  UPDATE Battle.net launcher icon appid={launcher['appid']} (kept)")
