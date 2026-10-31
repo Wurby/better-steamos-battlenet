@@ -8,12 +8,22 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, art, learn, steam, vdf, wrapper
+from . import __version__, art, learn, steam, vdf, wizard, wrapper
 from . import battlenet as bn
 from .errors import BnetSteamError
 
 
 # --- small helpers -------------------------------------------------------------
+
+def make_args(**kw):
+    """An argparse-style namespace with every option at its default, for calling commands from
+    code (the wizard) the same way the command line would."""
+    base = dict(dry_run=False, yes=False, start_steam=False, no_art=False, proton=None,
+                proton_log=None, seconds=300, file=None, latest=False, on_desktop=False,
+                learn=None, game=None, prune=None, handheld_fix=None)
+    base.update(kw)
+    return argparse.Namespace(**base)
+
 
 def load_state(env):
     p = env.work / "state.json"
@@ -221,12 +231,13 @@ def cmd_sync(env, args):
         save_state(env, state)
     if art_written:
         print(f"  art    wrote {art_written} image(s); restart Steam to see them")
-    if not adds and not updates and not removes:
+    changes = len(adds) + len(updates) + len(removes)
+    if not changes:
         print("nothing to do")
-        return
+        return 0
     if args.dry_run:
         print("[dry-run] nothing written")
-        return
+        return changes
     summary = f"Add {len(adds)}, update {len(updates)} and remove {len(removes)} shortcut(s)."
     with steam.write_session(env, summary, args.yes, args.start_steam) as s:
         data = s.load_shortcuts()
@@ -251,6 +262,7 @@ def cmd_sync(env, args):
         mine.pop(uid, None)
     save_state(env, state)
     print(f"added {len(adds)}, updated {len(updates)}, removed {len(removes)} shortcut(s)")
+    return changes
 
 
 def plan_prune(prefix, launcher, state, games, existing, args):
@@ -378,33 +390,60 @@ def cmd_restore(env, args):
     print("restored")
 
 
-def cmd_desktop(env, args):
-    """Install an app-menu entry (and optionally a desktop icon) that runs `sync`."""
+# Start the app from a given folder regardless of the current directory (`python -m` would put
+# the current directory first on the import path and could pick up some other "bnet_steam").
+RUN_APP = "import sys; sys.path.insert(0, sys.argv.pop(1)); from bnet_steam.cli import main; main()"
+
+
+def cmd_desktop(env, args, quiet=False):
+    """Install an app-menu entry (and optionally a desktop icon) that runs the guided setup."""
     env.work.mkdir(parents=True, exist_ok=True)
     pkg_root = Path(__file__).resolve().parent.parent
-    script = env.work / "sync.sh"
+    script = env.work / "bnet-steam.sh"
     script.write_text(
         "#!/bin/bash\n"
-        "# Run `bnet-steam sync` in a terminal and keep it open to read the result.\n"
-        f"PYTHONPATH={shlex.quote(str(pkg_root))} {shlex.quote(sys.executable)} "
-        f"-m bnet_steam --data-dir {shlex.quote(str(env.work))} "
-        f"--steam-root {shlex.quote(str(env.root))} sync --start-steam\n"
+        "# Run the Battle.net for Steam guided setup in a terminal and keep it open to read.\n"
+        f"{shlex.quote(sys.executable)} -c {shlex.quote(RUN_APP)} {shlex.quote(str(pkg_root))} "
+        f"--data-dir {shlex.quote(str(env.work))} "
+        f"--steam-root {shlex.quote(str(env.root))} wizard\n"
         'echo\nread -r -p "Press Enter to close"\n')
     script.chmod(0o755)
+    icon_file = env.work / "art" / "battlenet-icon.png"
+    icon = str(icon_file) if icon_file.exists() else "steam"
     exec_path = f'"{script}"' if " " in str(script) else str(script)
-    entry = ("[Desktop Entry]\nType=Application\nName=Battle.net Sync\n"
-             "Comment=Add newly installed Battle.net games to Steam\n"
-             f"Exec={exec_path}\nTerminal=true\nIcon=steam\nCategories=Game;\n")
+    entry = ("[Desktop Entry]\nType=Application\nName=Battle.net for Steam\n"
+             "Comment=Set up Battle.net and add your Battle.net games to Steam\n"
+             f"Exec={exec_path}\nTerminal=true\nIcon={icon}\nCategories=Game;\n")
     apps = Path.home() / ".local/share/applications"
     apps.mkdir(parents=True, exist_ok=True)
-    targets = [apps / "bnet-steam-sync.desktop"]
+    targets = [apps / "bnet-steam.desktop"]
+    desktop_dir = None
     if args.on_desktop:
-        d = subprocess.run(["xdg-user-dir", "DESKTOP"], capture_output=True, text=True).stdout.strip()
-        targets.append(Path(d or Path.home() / "Desktop") / "Battle.net Sync.desktop")
+        try:
+            d = subprocess.run(["xdg-user-dir", "DESKTOP"], capture_output=True,
+                               text=True).stdout.strip()
+        except OSError:                                       # xdg-user-dir is not installed
+            d = ""
+        desktop_dir = Path(d or Path.home() / "Desktop")
+        targets.append(desktop_dir / "Battle.net for Steam.desktop")
     for t in targets:
+        t.parent.mkdir(parents=True, exist_ok=True)        # a fresh account may have no Desktop
         t.write_text(entry)
         t.chmod(0o755)
-        print(f"wrote {t}")
+        if not quiet:
+            print(f"wrote {t}")
+    # tidy up the entries earlier versions of this tool made (only if they are ours)
+    for old in (apps / "bnet-steam-sync.desktop",
+                *( [desktop_dir / "Battle.net Sync.desktop"] if desktop_dir else [] )):
+        try:
+            if old.exists() and "Battle.net" in old.read_text() and "sync.sh" in old.read_text():
+                old.unlink()
+        except OSError:
+            pass
+
+
+def cmd_wizard(env, args):
+    wizard.run(env)
 
 
 # --- entry point ----------------------------------------------------------------
@@ -418,7 +457,7 @@ def build_parser():
     ap.add_argument("--steam-user", help="Steam account id under userdata/ (default: most recent)")
     ap.add_argument("--data-dir", help="where we keep the Wine prefix, art cache and backups "
                                        "(default: ~/.local/share/bnet-steam)")
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd")       # no command: run the guided setup
 
     write = argparse.ArgumentParser(add_help=False)
     write.add_argument("--dry-run", action="store_true", help="show what would change; write nothing")
@@ -452,21 +491,23 @@ def build_parser():
     p = sub.add_parser("restore", parents=[write], help="list or restore Steam file backups")
     p.add_argument("file", nargs="?", help="backup file to restore")
     p.add_argument("--latest", action="store_true", help="restore the newest backup of each file")
-    p = sub.add_parser("desktop", help="add an app-menu entry that runs `sync`")
+    sub.add_parser("wizard", help="guided setup: works out the next step and does it")
+    p = sub.add_parser("desktop", help="add an app-menu entry (and desktop icon) for the guided setup")
     p.add_argument("--on-desktop", action="store_true", help="also put an icon on the desktop")
     return ap
 
 
 COMMANDS = {"status": cmd_status, "download": cmd_download, "install": cmd_install,
             "repoint": cmd_repoint, "sync": cmd_sync, "learn": cmd_learn,
-            "launch": cmd_launch, "restore": cmd_restore, "desktop": cmd_desktop}
+            "launch": cmd_launch, "restore": cmd_restore, "desktop": cmd_desktop,
+            "wizard": cmd_wizard}
 
 
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
         env = steam.discover(args.steam_root, args.steam_user, args.data_dir)
-        COMMANDS[args.cmd](env, args)
+        COMMANDS[args.cmd or "wizard"](env, args)
     except BnetSteamError as e:
         print(f"error: {e}", file=sys.stderr)
         sys.exit(1)

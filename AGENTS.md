@@ -17,8 +17,10 @@ bnet_steam/
   art.py        default library art via ffmpeg; launcher icon
   learn.py      watch the launcher's Play button to record a game's real start command
   pe_icon.py    pull an exe's main icon out of its PE resources (pure Python)
+  wizard.py     guided setup for non-technical users: what the desktop icon runs
   wrapper.py    run-game.sh: the launch-option wrapper every shortcut runs through (verb swap)
   cli.py        commands and argument parsing
+install.sh      one-line installer (curl | bash): downloads the repo, adds the desktop icon
 tests/          unittest suite; helpers.py builds a fake Steam + Battle.net prefix
 ```
 Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s tests -t . -b`.
@@ -156,6 +158,16 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
 ## License
 MIT, copyright "bnet-steam contributors". Contributions are accepted on the same terms. Do not add
 Blizzard or Valve artwork or trademarks to the repo.
+
+## Install flow (non-technical users)
+`install.sh` -> `~/.local/share/bnet-steam/app` + `~/.local/bin/bnet-steam` + a desktop icon whose
+script runs `wizard`. The wizard works out the stage (install / waiting for the Battle.net installer /
+switch the shortcut / add games), does the next step, and waits until Battle.net is installed AND
+closed before it switches the shortcut, because that restarts Steam and would kill a running
+installer. Entry points must not depend on the current directory (`python -m` puts cwd first on
+`sys.path`), so they insert the app folder explicitly. `install.sh` validates a download before it
+replaces the installed copy and never touches the data dir (prefix, backups, state). Keep it short
+and readable: users are told to read it.
 
 ## Conventions
 - Match the surrounding style; comments explain *why*, not *what*.

@@ -26,6 +26,12 @@
 - [ ] Let the user mark a game as needing / not needing the launcher (currently inferred from
       `-launcherlogin` / `-sso`)
 
+- [ ] Run the one-line install from GitHub on a genuinely fresh machine/account (only tested here
+      against a local tarball, in temp homes and on the owner's already-set-up machine)
+- [ ] The wizard's first-time path (install -> installer -> switch) has only been run with fakes
+- [ ] An uninstall command (README documents the manual steps)
+- [ ] Pin the installer to a release tag instead of `main` once there are releases
+
 ## Later
 - [ ] Flatpak Steam support
 - [ ] Verify launch arguments for more Blizzard games; grow `VERIFIED`

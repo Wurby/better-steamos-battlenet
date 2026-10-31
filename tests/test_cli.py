@@ -195,21 +195,76 @@ class Restore(Base):
 
 
 class Desktop(Base):
-    def test_writes_executable_script_and_entry_with_this_machines_paths(self):
-        with tempfile.TemporaryDirectory() as home, \
-                mock.patch.object(Path, "home", return_value=Path(home)):
-            cli.cmd_desktop(self.env, args())
-            script = self.env.work / "sync.sh"
-            entry = (Path(home) / ".local/share/applications/bnet-steam-sync.desktop").read_text()
-            self.assertTrue(os.access(script, os.X_OK))
-            self.assertIn(str(self.env.work), script.read_text())
-            self.assertIn(str(self.env.root), script.read_text())
-            self.assertIn(f"Exec={script}", entry)
-            self.assertIn("Terminal=true", entry)
+    def setUp(self):
+        super().setUp()
+        self._home = tempfile.TemporaryDirectory()
+        self.addCleanup(self._home.cleanup)
+        self.home = Path(self._home.name)
+        patch = mock.patch.object(Path, "home", return_value=self.home)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def run_desktop(self, **kw):
+        fake = mock.Mock(stdout=str(self.home / "Desktop") + "\n")   # never the real Desktop
+        with mock.patch("subprocess.run", return_value=fake):
+            cli.cmd_desktop(self.env, args(**kw), quiet=True)
+
+    def test_writes_an_executable_script_that_runs_the_wizard_with_this_machines_paths(self):
+        self.run_desktop()
+        script = self.env.work / "bnet-steam.sh"
+        entry = (self.home / ".local/share/applications/bnet-steam.desktop").read_text()
+        self.assertTrue(os.access(script, os.X_OK))
+        text = script.read_text()
+        self.assertIn(" wizard", text)
+        self.assertIn("sys.path.insert(0, sys.argv.pop(1))", text)     # not dependent on the cwd
+        self.assertIn(str(self.env.work), text)
+        self.assertIn(str(self.env.root), text)
+        self.assertIn("Press Enter to close", text)                    # the window stays readable
+        self.assertIn(f"Exec={script}", entry)
+        self.assertIn("Name=Battle.net for Steam", entry)
+        self.assertIn("Terminal=true", entry)
+
+    def test_icon_is_the_generic_one_until_the_battlenet_icon_exists(self):
+        self.run_desktop()
+        self.assertIn("Icon=steam", (self.home / ".local/share/applications/bnet-steam.desktop").read_text())
+        icon = self.env.work / "art" / "battlenet-icon.png"
+        icon.parent.mkdir(parents=True)
+        icon.write_bytes(b"png")
+        self.run_desktop()
+        self.assertIn(f"Icon={icon}", (self.home / ".local/share/applications/bnet-steam.desktop").read_text())
+
+    def test_on_desktop_adds_a_desktop_icon_and_leaves_no_stray_files(self):
+        self.run_desktop(on_desktop=True)
+        self.assertTrue((self.home / "Desktop" / "Battle.net for Steam.desktop").exists())
+        self.assertEqual(sorted(p.name for p in (self.home / "Desktop").iterdir()),
+                         ["Battle.net for Steam.desktop"])
+
+    def test_entries_from_older_versions_are_replaced_but_unrelated_files_are_not(self):
+        apps = self.home / ".local/share/applications"
+        apps.mkdir(parents=True)
+        desk = self.home / "Desktop"
+        desk.mkdir()
+        old_a = apps / "bnet-steam-sync.desktop"
+        old_b = desk / "Battle.net Sync.desktop"
+        for f in (old_a, old_b):
+            f.write_text("[Desktop Entry]\nName=Battle.net Sync\nExec=/x/sync.sh\n")
+        mine = desk / "Battle.net Sync.desktop.mine"
+        mine.write_text("keep me")
+        other = desk / "Something Else.desktop"
+        other.write_text("[Desktop Entry]\nName=Other\n")
+        self.run_desktop(on_desktop=True)
+        self.assertFalse(old_a.exists() or old_b.exists())
+        self.assertTrue(mine.exists() and other.exists())
+
+    def test_a_file_with_an_old_name_that_is_not_ours_is_kept(self):
+        desk = self.home / "Desktop"
+        desk.mkdir()
+        theirs = desk / "Battle.net Sync.desktop"
+        theirs.write_text("[Desktop Entry]\nName=My own thing\nExec=/usr/bin/true\n")
+        self.run_desktop(on_desktop=True)
+        self.assertEqual(theirs.read_text(), "[Desktop Entry]\nName=My own thing\nExec=/usr/bin/true\n")
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class Prune(Base):
