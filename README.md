@@ -80,7 +80,7 @@ The Quick start installs everything under `~/.local/share/bnet-steam/app` and ad
 ```sh
 git clone https://github.com/Wurby/better-steamos-battlenet.git && cd better-steamos-battlenet
 python3 -m bnet_steam status            # see what was detected
-python3 -m bnet_steam wizard            # the guided setup the desktop icon runs
+python3 -m bnet_steam wizard            # the guided setup the desktop icon runs (add -v for the detailed log)
 # or step by step:
 python3 -m bnet_steam install           # adds the installer shortcut
 # start "Battle.net" from Steam, run the installer, sign in, close it, then:

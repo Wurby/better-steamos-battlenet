@@ -20,7 +20,7 @@ def make_args(**kw):
     code (the wizard) the same way the command line would."""
     base = dict(dry_run=False, yes=False, start_steam=False, no_art=False, proton=None,
                 proton_log=None, seconds=300, file=None, latest=False, on_desktop=False,
-                learn=None, game=None, prune=None, handheld_fix=None)
+                learn=None, game=None, prune=None, handheld_fix=None, verbose=False)
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -144,7 +144,10 @@ def cmd_repoint(env, args):
     print("repointed")
 
 
-def cmd_sync(env, args):
+def cmd_sync(env, args, on_change=None):
+    """on_change(kind, name), if given, hears of every planned change: kind is "new", "update",
+    "remove" or "gone" (no longer installed, left alone)."""
+    heard = on_change or (lambda kind, name: None)
     data = steam.load_shortcuts(env, strict=True)
     launcher, prefix = require_launcher(env, data)
     state = load_state(env)
@@ -212,16 +215,18 @@ def cmd_sync(env, args):
         label = f"{g['name']} ({g['code']}) [{source}]"
         if cur is None:
             print(f"  NEW    {label} appid={appid}")
+            heard("new", g["name"])
             adds.append((g, steam.new_shortcut(appid, g["name"], exe.strip('"'), opts, start, icon)))
             continue
         want = {"appname": g["name"], "exe": exe, "StartDir": start,
                 "LaunchOptions": opts, "icon": icon}
         if any(cur.get(k) != v for k, v in want.items()):
             print(f"  UPDATE {label} appid={appid} (kept)")
+            heard("update", g["name"])
             updates.append((appid, want))
         else:
             print(f"  have   {label}")
-    removes = plan_prune(prefix, launcher, state, games, existing, args)
+    removes = plan_prune(prefix, launcher, state, games, existing, args, heard)
     # forget shortcuts that are already gone from Steam (e.g. removed by hand)
     stale = [u for u, a in mine.items()
              if u not in {g["uid"] for g in games} and a not in existing]
@@ -265,7 +270,7 @@ def cmd_sync(env, args):
     return changes
 
 
-def plan_prune(prefix, launcher, state, games, existing, args):
+def plan_prune(prefix, launcher, state, games, existing, args, heard=lambda kind, name: None):
     """Shortcuts this tool created for games that are no longer installed.
     Returns [(appid, name, uid)] to remove. Removal is opt-in: asked about on a terminal,
     done without asking only with --prune, otherwise just reported."""
@@ -286,6 +291,7 @@ def plan_prune(prefix, launcher, state, games, existing, args):
         if args.dry_run or args.yes or not sys.stdin.isatty():
             for _, name, _ in gone:
                 print(f"  gone   {name}: no longer installed; `sync --prune` removes its shortcut")
+                heard("gone", name)
             return []
         print("Some games are no longer installed. Removing a shortcut makes Steam delete its "
               "own compat folder for it; your Battle.net install is not affected.")
@@ -293,6 +299,7 @@ def plan_prune(prefix, launcher, state, games, existing, args):
                                          ).strip().lower() in ("y", "yes")]
     for appid, name, _ in gone:
         print(f"  REMOVE {name} appid={appid} (no longer installed)")
+        heard("remove", name)
     return gone
 
 
@@ -323,13 +330,19 @@ def cmd_learn(env, args):
         print("nothing seen")
 
 
-def guide_unverified(env, state, prefix, games, args):
-    """Walk the user through teaching us games whose start command we can only guess."""
-    todo = []
+def unverified(prefix, games, state):
+    """Games whose start command is only a guess."""
+    out = []
     for g in games:
         spec = bn.launch_spec(prefix, g, state)
         if spec is None or spec[2].startswith("derived"):
-            todo.append(g)
+            out.append(g)
+    return out
+
+
+def guide_unverified(env, state, prefix, games, args):
+    """Walk the user through teaching us games whose start command we can only guess."""
+    todo = unverified(prefix, games, state)
     if not todo:
         return
     scripted = args.yes or not sys.stdin.isatty()
@@ -443,7 +456,7 @@ def cmd_desktop(env, args, quiet=False):
 
 
 def cmd_wizard(env, args):
-    wizard.run(env)
+    wizard.run(env, verbose=args.verbose)
 
 
 # --- entry point ----------------------------------------------------------------
@@ -457,6 +470,8 @@ def build_parser():
     ap.add_argument("--steam-user", help="Steam account id under userdata/ (default: most recent)")
     ap.add_argument("--data-dir", help="where we keep the Wine prefix, art cache and backups "
                                        "(default: ~/.local/share/bnet-steam)")
+    ap.add_argument("-v", "--verbose", action="store_true",
+                    help="guided setup: show the detailed log instead of hiding it")
     sub = ap.add_subparsers(dest="cmd")       # no command: run the guided setup
 
     write = argparse.ArgumentParser(add_help=False)
@@ -509,7 +524,8 @@ def main(argv=None):
         env = steam.discover(args.steam_root, args.steam_user, args.data_dir)
         COMMANDS[args.cmd or "wizard"](env, args)
     except BnetSteamError as e:
-        print(f"error: {e}", file=sys.stderr)
+        if not getattr(e, "shown", False):        # the guided setup already explained it
+            print(f"error: {e}", file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
         sys.exit(130)

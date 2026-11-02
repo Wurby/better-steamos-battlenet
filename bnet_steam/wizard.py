@@ -2,81 +2,42 @@
 
 Works out where you are (nothing set up yet / waiting for the Battle.net installer / ready to
 switch the shortcut to the launcher / ready to add games), does the next step, and explains each
-one in plain words. Running it again later adds any games you have installed since.
+one in plain words, one screen per step. Running it again later adds any games you have
+installed since.
 """
-import select
 import sys
-import time
 from pathlib import Path
 
 from . import battlenet as bn
-from . import steam
+from . import steam, ui
 from .errors import BnetSteamError
 
-INTRO = """\
-Battle.net for Steam
-====================
-This sets up Battle.net on your Steam Machine or Deck, then adds the Battle.net games you
-install to Steam so you can start them like any other game.
+STEPS = 4
 
-Steam will close and reopen a few times while this runs. That is normal. I will explain each
-step and ask before I change anything.
-"""
+WELCOME = ("This sets up Battle.net on your Steam Machine or Deck, then adds the Battle.net "
+           "games you install to Steam so you can start them like any other game.")
+PLAN = ["1. Add Battle.net to Steam",
+        "2. Install Battle.net (you click through its installer)",
+        "3. Switch Steam over to the installed Battle.net",
+        "4. Add your games"]
+HEADS_UP = ("Steam will close and reopen a few times while this runs. That is normal. I will "
+            "explain each step and ask before I change anything.")
 
-INTRO_RETURNING = """\
-Battle.net for Steam
-====================
-Checking for new Battle.net games. If there are changes I will ask before I make them.
-"""
+INSTALL_STEPS = ["1. Open your Library and find \"Battle.net\" (look under \"Non-Steam\" if you "
+                 "cannot see it).",
+                 "2. Press Play. The Battle.net installer opens: click through it and sign in.",
+                 "3. When Battle.net's home page shows, close Battle.net."]
 
-AFTER_ADD = """\
-Battle.net has been added to Steam. Now, in Steam:
-
-  1. Open your Library and find "Battle.net" (look under "Non-Steam" if you cannot see it).
-  2. Press Play. The Battle.net installer opens: click through it and sign in.
-  3. When Battle.net's home page shows, close Battle.net.
-
-I will wait here and carry on by myself once Battle.net is installed and closed.
-(If you have already done that, press Enter.)
-"""
-
-DONE = """\
-All done.
-
-  * To add more games: install them in Battle.net (start "Battle.net" from Steam), close it,
-    then double-click "Battle.net for Steam" again.
-  * Some games (World of Warcraft, Diablo IV) can only be started by the Battle.net launcher.
-    Their shortcut opens Battle.net; press Play there.
-"""
+DONE = ["To add more games: install them in Battle.net (start \"Battle.net\" from Steam), "
+        "close it, then double-click \"Battle.net for Steam\" again.",
+        "",
+        "Some games (World of Warcraft, Diablo IV) can only be started by the Battle.net "
+        "launcher. Their shortcut opens Battle.net; press Play there."]
 
 
-class Console:
-    """Talks to a person at a terminal. Tests replace this."""
-
-    def say(self, text=""):
-        print(text, flush=True)
-
-    def confirm(self, prompt, default=True):
-        hint = "[Y/n]" if default else "[y/N]"
-        ans = input(f"{prompt} {hint} ").strip().lower()
-        return default if not ans else ans in ("y", "yes")
-
-    def wait_for(self, condition, seconds, poll=5, on_enter=None):
-        """Wait until condition() is true. Pressing Enter re-checks it right away (and calls
-        on_enter first). Returns True when the condition held, False on timeout."""
-        deadline = time.time() + seconds
-        while time.time() < deadline:
-            if condition():
-                return True
-            if sys.stdin.isatty() and select.select([sys.stdin], [], [], poll)[0]:
-                sys.stdin.readline()
-                if condition():
-                    return True
-                if on_enter:
-                    on_enter()
-            else:
-                time.sleep(poll)
-        return False
+# friendlier wording for what the commands print while they work
+PROGRESS = {"Closing Steam": "Closing Steam...", "backup:": "Backing up your Steam files...",
+            "Steam restarted": "Starting Steam again..."}
 
 
 def battlenet_running(proc=Path("/proc")):
@@ -103,19 +64,40 @@ def stage(env):
     return "sync", entry
 
 
-def run(env, io=None, installer_wait=3600, running=battlenet_running):
-    from . import cli          # late: cli imports this module's command
-    io = io or Console()
-    st, entry = stage(env)
-    io.say(INTRO_RETURNING if st == "sync" else INTRO)
+def run(env, io=None, installer_wait=3600, running=battlenet_running, verbose=False):
+    io = io or ui.Terminal(verbose, log_path=env.work / "logs" / "wizard-last.log")
+    try:
+        _run(env, io, installer_wait, running)
+    except BnetSteamError as e:
+        io.problem(str(e), None if io.verbose else
+                   "If you ask someone for help, run this again with -v to see the details.")
+        e.shown = True              # the caller need not print it again
+        raise
 
-    if st == "install":
-        if not io.confirm("Add Battle.net to Steam now? (Steam will close and reopen.)"):
+
+def _run(env, io, installer_wait, running):
+    from . import cli          # late: cli imports this module's command
+    st, entry = stage(env)
+    first_time = st != "sync"
+    done = []                  # what earlier steps achieved, shown at the top of later screens
+
+    if first_time and st == "install":
+        io.screen("Welcome")
+        io.say(WELCOME)
+        io.blank()
+        io.box(PLAN)
+        io.blank()
+        io.say(HEADS_UP)
+        if not io.confirm("Ready to start?"):
+            io.blank()
             io.say("Okay, nothing was changed.")
             return
-        cli.cmd_install(env, cli.make_args(yes=True, start_steam=True))
-        io.say()
-        io.say(AFTER_ADD)
+
+    if st == "install":
+        io.screen("Adding Battle.net to Steam", 1, STEPS)
+        io.run("Adding Battle.net to Steam...",
+               lambda: cli.cmd_install(env, cli.make_args(yes=True, start_steam=True)), PROGRESS)
+        done.append("Battle.net is in your Steam library")
         st, entry = "installer", None
 
     if st in ("installer", "repoint"):
@@ -125,28 +107,106 @@ def run(env, io=None, installer_wait=3600, running=battlenet_running):
             _, entry = stage(env)
         launcher = bn.launcher_exe(bn.prefix_for(env, entry))
         if not launcher.exists() or running():
+            io.screen("Install Battle.net", 2, STEPS, done)
             if launcher.exists():
                 io.say("Battle.net is installed but still open. Close it and I will carry on.")
             else:
-                io.say("Waiting for Battle.net to finish installing...")
-            ready = io.wait_for(lambda: launcher.exists() and not running(), installer_wait,
-                                on_enter=lambda: io.say(
-                                    "Not yet: Battle.net must be installed and closed."))
+                io.say("Now, in Steam:")
+                io.blank()
+                io.box(INSTALL_STEPS)
+                io.blank()
+                io.say("I will carry on by myself once Battle.net is installed and closed. "
+                       "Already finished? Press Enter and I will check.")
+            io.blank()
+            ready = io.wait_for(
+                lambda: launcher.exists() and not running(), installer_wait,
+                "Waiting for Battle.net to finish installing...",
+                on_enter=lambda: io.note("Not yet: Battle.net must be installed and closed."))
             if not ready:
+                io.blank()
                 io.say("I did not see the install finish. Run this shortcut again after "
                        "Battle.net is installed and closed.")
                 return
-        io.say("\nBattle.net is installed. Updating its Steam shortcut "
-               "(Steam will close and reopen)...")
-        cli.cmd_repoint(env, cli.make_args(yes=True, start_steam=True))
+            done.append("Battle.net is installed")
+        io.screen("Switching to Battle.net", 3, STEPS, done)
+        io.run("Updating Battle.net's Steam shortcut...",
+               lambda: cli.cmd_repoint(env, cli.make_args(yes=True, start_steam=True)), PROGRESS)
+        done.append("Steam opens the installed Battle.net")
         st = "sync"
 
-    if st == "sync":
-        io.say("\nLooking for your Battle.net games...")
-        cli.cmd_sync(env, cli.make_args(start_steam=True))
-        try:
-            cli.cmd_desktop(env, cli.make_args(on_desktop=True), quiet=True)   # pick up the icon
-        except BnetSteamError:
-            pass
-        io.say()
-        io.say(DONE)
+    changed = add_games(env, io, cli, 4 if first_time else None, done)
+    try:
+        cli.cmd_desktop(env, cli.make_args(on_desktop=True), quiet=True)   # pick up the icon
+    except BnetSteamError:
+        pass
+    if changed is None:
+        return
+    if first_time:
+        io.screen("All done")
+        io.good("Battle.net and your games are in your Steam library")
+    if changed or first_time:
+        io.blank()
+        io.box(DONE)
+
+
+def add_games(env, io, cli, step, done=()):
+    """Teach, list, confirm and add. Returns the number of shortcuts changed, or None if the
+    person said no."""
+    if step:
+        io.screen("Adding your games", step, STEPS, done)
+    else:
+        io.screen("Checking for new games")
+    data = steam.load_shortcuts(env)
+    _, prefix = cli.require_launcher(env, data)
+    state = cli.load_state(env)
+    for g in cli.unverified(prefix, bn.installed_games(prefix), state):
+        teach(env, io, cli, state, prefix, g)
+
+    plan = []
+    heard = lambda kind, name: plan.append((kind, name))
+    io.run("Looking for your Battle.net games...", lambda: cli.cmd_sync(
+        env, cli.make_args(dry_run=True, learn=False), heard))
+    new = [n for k, n in plan if k == "new"]
+    changed = [n for k, n in plan if k == "update"]
+    gone = [n for k, n in plan if k == "gone"]
+    if not (new or changed or gone):
+        io.good("Everything is up to date")
+        return 0
+    for title, names in (("Adding", new), ("Updating", changed)):
+        if names:
+            io.say(f"{title}:")
+            for n in names:
+                io.say("+ " + n if title == "Adding" else "~ " + n, indent=4)
+    prune = False
+    if gone:
+        names = ", ".join(gone)
+        prune = io.confirm(f"{names}: no longer installed. Remove the Steam shortcut? "
+                           "(Your Battle.net install is not affected.)", default=False)
+    if (new or changed) and not io.confirm("Add these to Steam now? Steam will close and reopen."):
+        io.blank()
+        io.say("Okay, nothing was changed.")
+        return None
+    count = io.run("Updating Steam...", lambda: cli.cmd_sync(
+        env, cli.make_args(yes=True, start_steam=True, learn=False, prune=prune)), PROGRESS)
+    io.good("Your Steam library is up to date")
+    return count
+
+
+def teach(env, io, cli, state, prefix, game):
+    """A game whose start command we can only guess: watch the person press Play once."""
+    io.screen(f"Teach me how to start {game['name']}")
+    io.say(f"I cannot tell for sure how {game['name']} starts, and a guess might not work. "
+           "If you show me once, I will remember.")
+    io.blank()
+    io.box([f"1. Start \"Battle.net\" from Steam, if it is not open.",
+            f"2. Press Play on {game['name']} and let it reach its first screen.",
+            "3. Quit the game."])
+    io.blank()
+    io.say("I will wait up to 3 minutes. Press Enter to skip; the shortcut will use my best guess.")
+    io.blank()
+    if io.run(f"Waiting for you to press Play on {game['name']}...",
+              lambda: cli.learn_games(env, state, prefix, [game], 180,
+                                      skip_on_enter=sys.stdin.isatty())):
+        io.good(f"Got it: I will remember how to start {game['name']}")
+    else:
+        io.note(f"Skipped {game['name']}; its shortcut will use a guess")

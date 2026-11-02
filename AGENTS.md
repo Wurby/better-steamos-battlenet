@@ -17,6 +17,7 @@ bnet_steam/
   art.py        default library art via ffmpeg; launcher icon
   learn.py      watch the launcher's Play button to record a game's real start command
   pe_icon.py    pull an exe's main icon out of its PE resources (pure Python)
+  ui.py         terminal screens (progress, boxes, spinner); hides command output unless -v
   wizard.py     guided setup for non-technical users: what the desktop icon runs
   wrapper.py    run-game.sh: the launch-option wrapper every shortcut runs through (verb swap)
   cli.py        commands and argument parsing
@@ -164,7 +165,10 @@ Blizzard or Valve artwork or trademarks to the repo.
 script runs `wizard`. The wizard works out the stage (install / waiting for the Battle.net installer /
 switch the shortcut / add games), does the next step, and waits until Battle.net is installed AND
 closed before it switches the shortcut, because that restarts Steam and would kill a running
-installer. Entry points must not depend on the current directory (`python -m` puts cwd first on
+installer. One screen per step (`ui.Terminal`); the commands' own printed log is captured, saved to
+`logs/wizard-last.log` and shown only with `-v`, so wizard code must never rely on a command's
+stdout being visible or on `input()` inside a captured run (pass `yes=True`; ask via `io.confirm`).
+Output stays plain when not a terminal or `NO_COLOR` is set. Entry points must not depend on the current directory (`python -m` puts cwd first on
 `sys.path`), so they insert the app folder explicitly. `install.sh` validates a download before it
 replaces the installed copy and never touches the data dir (prefix, backups, state). Keep it short
 and readable: users are told to read it.

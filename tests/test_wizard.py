@@ -1,3 +1,4 @@
+import io
 import shutil
 import tempfile
 import unittest
@@ -5,34 +6,35 @@ from pathlib import Path
 from unittest import mock
 
 from bnet_steam import battlenet as bn
-from bnet_steam import cli, steam, wizard
+from bnet_steam import cli, steam, ui, wizard
 from bnet_steam.errors import BnetSteamError
 
 from .helpers import FakeSteam
 
 
-class FakeIO:
-    """Stands in for the person at the terminal."""
+class FakeIO(ui.Terminal):
+    """Stands in for the person at the terminal: a real (plain, non-animated) Terminal writing
+    to memory, with scripted answers."""
 
-    def __init__(self, confirms=(True,), on_wait=None, wait_result=True):
+    def __init__(self, confirms=(True,), on_wait=None, wait_result=True, verbose=False):
+        super().__init__(verbose, out=io.StringIO())
         self.confirms, self.on_wait, self.wait_result = list(confirms), on_wait, wait_result
-        self.said, self.asked, self.waits = [], [], 0
-
-    def say(self, text=""):
-        self.said.append(text)
+        self.asked, self.waits = [], 0
 
     def confirm(self, prompt, default=True):
         self.asked.append(prompt)
+        self.say(prompt)
         return self.confirms.pop(0)
 
-    def wait_for(self, condition, seconds, poll=5, on_enter=None):
+    def wait_for(self, condition, seconds, message, poll=3, on_enter=None):
         self.waits += 1
+        self.say(message)
         if self.on_wait:
             self.on_wait()                      # the user "finishes the Battle.net install"
         return self.wait_result and condition()
 
     def text(self):
-        return "\n".join(self.said)
+        return " ".join(self.out.getvalue().split())
 
 
 class Base(unittest.TestCase):
@@ -127,7 +129,18 @@ class Journey(Base):
         self.assertIn("Library", text)
         self.assertIn("Play", text)
         self.assertIn("Non-Steam", text)
-        self.assertIn("press Enter", text)
+        self.assertIn("Press Enter", text)
+
+    def test_each_step_is_its_own_screen_with_progress_and_a_checklist(self):
+        self.fresh()
+        self.installer_file()
+        io = FakeIO(on_wait=self.finish_install)
+        wizard.run(self.env, io, running=lambda: False)
+        text = io.text()
+        for n in (1, 2, 3, 4):
+            self.assertIn(f"Step {n} of 4", text)
+        self.assertLess(text.index("Step 2 of 4"), text.index("OK Battle.net is in your Steam library"))
+        self.assertLess(text.index("Step 4 of 4"), text.index("OK Steam opens the installed Battle.net"))
 
     def test_declining_the_first_question_changes_nothing(self):
         self.fresh()
@@ -172,7 +185,7 @@ class Journey(Base):
     def test_a_returning_user_is_not_told_steam_will_restart_a_few_times(self):
         io = FakeIO(confirms=[])
         wizard.run(self.env, io)
-        self.assertIn("Checking for new Battle.net games", io.text())
+        self.assertIn("Checking for new games", io.text())
         self.assertNotIn("close and reopen a few times", io.text())
 
     def test_a_first_time_user_is_told_what_to_expect(self):
@@ -181,53 +194,90 @@ class Journey(Base):
         wizard.run(self.env, io)
         self.assertIn("close and reopen a few times", io.text())
 
-    def test_already_set_up_just_adds_games_without_questions(self):
+    def test_already_set_up_lists_new_games_and_asks_once(self):
         self.fs.add_game("w2bn", "w2", "Warcraft II", "Warcraft II Battle.net Edition", "Warcraft II BNE.exe")
-        io = FakeIO(confirms=[])
+        io = FakeIO(confirms=[True])
         wizard.run(self.env, io)
-        self.assertEqual(io.asked, [])
+        self.assertEqual(len(io.asked), 1)
+        self.assertIn("+ Warcraft II Battle.net Edition", io.text())
         names = [e["appname"] for e in self.fs.shortcuts().values()]
         self.assertIn("Warcraft II Battle.net Edition", names)
-        self.assertIn("All done", io.text())
+        self.assertIn("Your Steam library is up to date", io.text())
 
-    def test_an_error_from_a_step_reaches_the_caller_to_be_shown_plainly(self):
+    def test_an_error_is_explained_on_screen_and_marked_as_shown(self):
         with mock.patch.object(cli, "cmd_sync", side_effect=BnetSteamError("Steam did not exit")):
-            with self.assertRaisesRegex(BnetSteamError, "Steam did not exit"):
-                wizard.run(self.env, FakeIO())
+            io = FakeIO()
+            with self.assertRaisesRegex(BnetSteamError, "Steam did not exit") as cm:
+                wizard.run(self.env, io)
+        self.assertTrue(cm.exception.shown)
+        self.assertIn("Something went wrong", io.text())
+        self.assertIn("Steam did not exit", io.text())
+        self.assertIn("-v", io.text())
+
+    def test_the_detailed_log_stays_hidden_by_default_and_shows_with_v(self):
+        self.fs.add_game("w2bn", "w2", "Warcraft II", "Warcraft II Battle.net Edition", "Warcraft II BNE.exe")
+        quiet = FakeIO(confirms=[True])
+        wizard.run(self.env, quiet)
+        for noise in ("appid=", "backup:", "NEW "):
+            self.assertNotIn(noise, quiet.text())
+
+    def uninstall_second_game(self):
+        self.fs.add_game("w2bn", "w2", "Warcraft II", "Warcraft II Battle.net Edition", "Warcraft II BNE.exe")
+        wizard.run(self.env, FakeIO(confirms=[True]))
+        self.fs.records.pop()
+        self.fs.aggregate.pop()
+        self.fs.flush_db()
+
+    def names(self):
+        return [e["appname"] for e in self.fs.shortcuts().values()]
+
+    def test_a_game_that_is_gone_is_kept_unless_the_person_says_to_remove_it(self):
+        self.uninstall_second_game()
+        io = FakeIO(confirms=[False])
+        wizard.run(self.env, io)
+        self.assertIn("Warcraft II Battle.net Edition", self.names())
+        self.assertIn("no longer installed", io.asked[0])
+
+    def test_a_game_that_is_gone_is_removed_when_the_person_agrees(self):
+        self.uninstall_second_game()
+        wizard.run(self.env, FakeIO(confirms=[True]))
+        self.assertNotIn("Warcraft II Battle.net Edition", self.names())
+
+    def test_declining_to_add_games_changes_nothing(self):
+        self.fs.add_game("w2bn", "w2", "Warcraft II", "Warcraft II Battle.net Edition", "Warcraft II BNE.exe")
+        before = self.env.shortcuts_path.read_bytes()
+        io = FakeIO(confirms=[False])
+        wizard.run(self.env, io)
+        self.assertEqual(self.env.shortcuts_path.read_bytes(), before)
+        self.assertIn("nothing was changed", io.text())
+
+    def test_a_game_we_can_only_guess_at_is_taught_on_its_own_screen(self):
+        self.fs.add_game("zzz", "zzz", "Mystery", "Mystery Game", "Mystery.exe")
+        with mock.patch.object(cli, "unverified", return_value=[
+                bn.installed_games(self.fs.prefix)[-1]]), \
+                mock.patch.object(cli, "learn_games", return_value=True) as learn:
+            io = FakeIO(confirms=[True])
+            wizard.run(self.env, io)
+        learn.assert_called_once()
+        self.assertIn("Teach me how to start", io.text())
+        self.assertIn("Press Play", io.text())
+        self.assertIn("I will remember", io.text())
+
+    def test_skipping_the_teaching_carries_on_with_a_guess(self):
+        self.fs.add_game("zzz", "zzz", "Mystery", "Mystery Game", "Mystery.exe")
+        with mock.patch.object(cli, "unverified", return_value=[
+                bn.installed_games(self.fs.prefix)[-1]]), \
+                mock.patch.object(cli, "learn_games", return_value=None):
+            io = FakeIO(confirms=[True])
+            wizard.run(self.env, io)
+        self.assertIn("will use a guess", io.text())
+        self.assertIn("Mystery Game", self.names())
 
     def test_the_desktop_icon_failing_does_not_spoil_a_finished_setup(self):
         self.m_desktop.side_effect = BnetSteamError("no desktop")
         io = FakeIO()
         wizard.run(self.env, io)
-        self.assertIn("All done", io.text())
-
-
-class Console(unittest.TestCase):
-    def test_wait_for_returns_when_the_condition_comes_true(self):
-        flips = iter([False, False, True])
-        with mock.patch("sys.stdin.isatty", return_value=False), mock.patch("time.sleep"):
-            self.assertTrue(wizard.Console().wait_for(lambda: next(flips), 60, poll=0))
-
-    def test_wait_for_gives_up_after_the_time_limit(self):
-        with mock.patch("sys.stdin.isatty", return_value=False), mock.patch("time.sleep"), \
-                mock.patch("time.time", side_effect=[0, 1, 2, 99, 100]):
-            self.assertFalse(wizard.Console().wait_for(lambda: False, 10, poll=0))
-
-    def test_pressing_enter_rechecks_and_reports_when_it_is_not_ready_yet(self):
-        said = []
-        flips = iter([False, False, False, True])
-        with mock.patch("sys.stdin") as stdin, mock.patch("select.select", return_value=([stdin], [], [])):
-            stdin.isatty.return_value = True
-            stdin.readline.return_value = "\n"
-            ok = wizard.Console().wait_for(lambda: next(flips), 60, poll=0,
-                                           on_enter=lambda: said.append("not yet"))
-        self.assertTrue(ok)
-        self.assertEqual(said, ["not yet"])
-
-    def test_confirm_defaults_to_yes_on_a_bare_enter(self):
-        for typed, want in (("", True), ("y", True), ("YES", True), ("n", False), ("no", False)):
-            with mock.patch("builtins.input", return_value=typed):
-                self.assertEqual(wizard.Console().confirm("ok?"), want, typed)
+        self.assertIn("Everything is up to date", io.text())
 
 
 class BattlenetRunning(unittest.TestCase):
