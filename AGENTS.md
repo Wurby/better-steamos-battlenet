@@ -187,6 +187,10 @@ once a setup has happened (a shortcut, a prefix or `state.json`). Tests must use
 nothing real is read or deleted.
 
 ## Conventions
+- Docs and user-facing text follow the Apple Style Guide; where it has no rule, the IBM style
+  (for example, sentence-style headings, simple present tense). Notable Apple rules: "choose" for
+  menu items, "deselect" not "untick", "press and hold" not "hold down", code font only for what
+  the user types (not folder names), a colon-ended lead-in before every list, active voice.
 - Match the surrounding style; comments explain *why*, not *what*.
 - Expected failures raise `BnetSteamError`; the CLI prints it and exits 1.
 - A bug fix gets a test that fails without it. Mutate-check safety tests when changing them.
