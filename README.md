@@ -10,10 +10,10 @@ appears in your Steam library like any other game.
 
 ## Install
 
-You need SteamOS in Desktop Mode, with Steam signed in at least once.
+You need SteamOS in Desktop Mode, with Steam signed in at least once. To install:
 
 1. Open Konsole: click Application Launcher, then search for Konsole.
-2. Paste this line and press Enter. (To paste, press Control-Shift-V.) The
+2. Paste this line and press Enter. To paste, press and hold Control and Shift, and then press V. The
    [script](install.sh) is short, so you can read it first.
 
    ```sh
@@ -42,22 +42,27 @@ Double-click **Battle.net for Steam** and choose **Remove Battle.net from Steam*
 only the shortcuts, or everything, including Battle.net, your games, and their saved data. It
 shows the size and asks before it deletes anything, and it removes only what it created.
 
-In Terminal, run `~/.local/bin/bnet-steam uninstall`, and add `--everything` to remove everything.
+In Konsole, run `~/.local/bin/bnet-steam uninstall`. Add `--everything` to remove everything.
 
 ## Troubleshooting
+
+If something goes wrong, try the following:
 
 - If you see “Steam did not close,” quit Steam (choose Steam > Exit) and try again.
 - To undo the last change to Steam's shortcuts, run `~/.local/bin/bnet-steam restore --latest`.
 - To see the detailed log, run `~/.local/bin/bnet-steam -v`.
-- Logs and backups are in `~/.local/share/bnet-steam/`.
+- Find logs and backups in the bnet-steam folder inside .local/share in your home folder.
 
 ## Things to know
+
+Keep these points in mind:
 
 - World of Warcraft and Diablo IV start only from the Battle.net launcher. Their shortcuts open
   Battle.net; press Play there.
 - Battle.net sees a generic hardware name instead of Valve hardware, so it shows its regular
   layout instead of the handheld layout. To turn this off, run `bnet-steam sync --no-handheld-fix`.
-- Game art is built from Blizzard's images with ffmpeg. Art you've already set is never replaced.
+- It builds game art from Blizzard's images with ffmpeg, and it never replaces art you've already
+  set.
 - Games without a verified start command use a best guess. Run `bnet-steam learn` to record the
   real one.
 - Anti-cheat games might not work under Proton, and running them there might put your account
@@ -67,13 +72,15 @@ In Terminal, run `~/.local/bin/bnet-steam uninstall`, and add `--everything` to 
 
 ## How it works
 
-- Battle.net runs in its own Wine prefix, outside Steam's `compatdata` folder, so removing a
+The tool does the following:
+
+- Runs Battle.net in its own Wine prefix, outside Steam's compatdata folder, so removing a
   shortcut never deletes your installation.
-- Each installed game gets one Steam shortcut that starts the game itself, so Steam tracks
+- Adds one Steam shortcut per installed game that starts the game itself, so Steam tracks
   playtime.
-- Before it edits Steam's shortcut or configuration files, it asks, closes Steam (it never
-  force-quits), and backs up both files (the last 20 are kept). It writes the changes
-  atomically and restores the backups if anything fails.
+- Asks, closes Steam (it never force-quits), and backs up Steam's shortcut and configuration
+  files before it edits them. It keeps the last 20 backups, writes changes atomically, and
+  restores the backups if anything fails.
 
 For details, see [AGENTS.md](AGENTS.md).
 
