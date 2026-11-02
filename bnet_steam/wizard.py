@@ -28,6 +28,10 @@ INSTALL_STEPS = ["1. Open your Library and find \"Battle.net\" (look under \"Non
                  "2. Press Play. The Battle.net installer opens: click through it and sign in.",
                  "3. When Battle.net's home page shows, close Battle.net."]
 
+# optional: neither is needed here
+INSTALLER_TIPS = ["Recommended, not required: in the installer's options, untick \"Run Battle.net "
+                  "when you start your computer\" and \"Add a desktop icon\"."]
+
 DONE = ["To add more games: install them in Battle.net (start \"Battle.net\" from Steam), "
         "close it, then double-click \"Battle.net for Steam\" again.",
         "",
@@ -120,6 +124,8 @@ def _run(env, io, installer_wait, running):
                 io.say("Now, in Steam:")
                 io.blank()
                 io.box(INSTALL_STEPS)
+                io.blank()
+                io.say(INSTALLER_TIPS[0])
                 io.blank()
                 io.say("I will carry on by myself once Battle.net is installed and closed. "
                        "Already finished? Press Enter and I will check.")

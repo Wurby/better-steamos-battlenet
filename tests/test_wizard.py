@@ -137,6 +137,9 @@ class Journey(Base):
         self.assertIn("Library", text)
         self.assertIn("Play", text)
         self.assertIn("Non-Steam", text)
+        self.assertIn("Recommended, not required", text)
+        self.assertIn("start your computer", text)
+        self.assertIn("desktop icon", text)
         self.assertIn("Press Enter", text)
 
     def test_each_step_is_its_own_screen_with_progress_and_a_checklist(self):

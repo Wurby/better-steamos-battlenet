@@ -35,6 +35,8 @@ it changes anything:
 1. It adds Battle.net to Steam. Steam closes and reopens.
 2. In Steam, open your Library, find **Battle.net** (under "Non-Steam" if you cannot see it) and
    press **Play**. Click through the Battle.net installer and sign in, then close Battle.net.
+   (Recommended, not required: untick "Run Battle.net when you start your computer" and "Add a
+   desktop icon" in the installer's options. You do not need either.)
    The window notices and carries on by itself.
 3. It switches the shortcut over to the installed launcher (Steam closes and reopens again) and
    adds any games you have installed.
