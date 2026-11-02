@@ -1,4 +1,5 @@
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -244,6 +245,14 @@ class WriteSession(unittest.TestCase):
             with self.assertRaisesRegex(BnetSteamError, "already running"):
                 with steam.write_session(self.env, "inner", yes=True):
                     pass
+
+
+class StartSteam(unittest.TestCase):
+    def test_steam_does_not_inherit_the_terminal_keyboard(self):
+        with mock.patch("subprocess.Popen") as popen:
+            steam.start_steam()
+        self.assertEqual(popen.call_args.kwargs["stdin"], subprocess.DEVNULL)
+        self.assertTrue(popen.call_args.kwargs["start_new_session"])
 
 
 if __name__ == "__main__":

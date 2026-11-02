@@ -147,7 +147,8 @@ def cmd_repoint(env, args):
 
 def cmd_sync(env, args, on_change=None):
     """on_change(kind, name), if given, hears of every planned change: kind is "new", "update",
-    "remove" or "gone" (no longer installed, left alone)."""
+    "launcher" (the Battle.net shortcut's own icon/options), "remove" or "gone" (no longer
+    installed, left alone). Returns how many shortcut changes it made (or would make)."""
     heard = on_change or (lambda kind, name: None)
     data = steam.load_shortcuts(env, strict=True)
     launcher, prefix = require_launcher(env, data)
@@ -171,6 +172,7 @@ def cmd_sync(env, args, on_change=None):
         if icon and not launcher.get("icon"):       # never replace an icon the user chose
             print(f"  UPDATE Battle.net launcher icon appid={launcher['appid']} (kept)")
             updates.append((launcher["appid"], {"icon": icon}))
+            heard("launcher", launcher["appname"])
     wrapper_cmd = f'"{env.work / wrapper.SCRIPT_NAME}"'
     launcher_wrapper = wrapper_cmd + (" --launcher-fix" if fix else "")
     if not args.dry_run:
@@ -187,6 +189,7 @@ def cmd_sync(env, args, on_change=None):
             print(f"  UPDATE Battle.net launcher options appid={launcher['appid']} (kept)"
                   f"{'' if fix else ' [handheld fix off]'}")
             updates.append((launcher["appid"], {"LaunchOptions": want_opts}))
+            heard("launcher", launcher["appname"])
         else:
             print("  note   the Battle.net shortcut has custom launch options; leaving them alone")
     families = bn.launcher_families(prefix)

@@ -50,6 +50,10 @@ class Base(unittest.TestCase):
         self.addCleanup(self.fs.cleanup)
         self.env = self.fs.env
         self.home = fake_home(self, self.fs)
+        for name in ("ensure_art", "ensure_launcher_art"):      # offline: art is not what is tested
+            q = mock.patch.object(cli.art, name, return_value=("", []))
+            q.start()
+            self.addCleanup(q.stop)
         for name, kw in (("steam_running", {"return_value": False}), ("stop_steam", {}),
                          ("start_steam", {})):
             p = mock.patch.object(steam, name, **kw)
@@ -65,6 +69,10 @@ class Base(unittest.TestCase):
         self.desktop = mock.patch.object(cli, "cmd_desktop")    # never touch the real desktop
         self.m_desktop = self.desktop.start()
         self.addCleanup(self.desktop.stop)
+
+    def up_to_date(self):
+        """A machine whose setup is complete: the launcher shortcut already has its options."""
+        cli.cmd_sync(self.env, cli.make_args(yes=True, learn=False))
 
     def fresh(self):
         """A machine where Battle.net has never been set up."""
@@ -153,6 +161,21 @@ class Journey(Base):
         self.assertLess(text.index("Step 2 of 4"), text.index("OK Battle.net is in your Steam library"))
         self.assertLess(text.index("Step 4 of 4"), text.index("OK Steam opens the installed Battle.net"))
 
+    def test_cancelling_before_sign_in_still_gets_the_launcher_art_and_wrapper(self):
+        """No games yet, only the launcher's own artwork and options to apply: that is still
+        work to do, not 'everything is up to date'."""
+        self.fresh()
+        self.installer_file()
+        io = FakeIO(on_wait=self.finish_install)
+        with mock.patch.object(cli.art, "ensure_launcher_art",
+                               return_value=("/art/icon.png", [])) as made:
+            wizard.run(self.env, io, running=lambda: False)
+        self.assertTrue((self.env.work / "run-game.sh").exists())
+        self.assertIn("run-game.sh", self.bnet()["LaunchOptions"])
+        self.assertEqual(self.bnet()["icon"], "/art/icon.png")
+        self.assertTrue(any(not c.args[3] for c in made.call_args_list))   # a real run, not a dry one
+        self.assertNotIn("Everything is up to date", io.text())
+
     def test_declining_the_first_question_changes_nothing(self):
         self.fresh()
         before = self.env.shortcuts_path.read_bytes()
@@ -194,6 +217,7 @@ class Journey(Base):
         self.assertTrue(self.bnet()["exe"].strip('"').endswith("Battle.net-Setup.exe"))
 
     def test_a_returning_user_is_not_told_steam_will_restart_a_few_times(self):
+        self.up_to_date()
         io = FakeIO(confirms=[])
         wizard.run(self.env, io)
         self.assertIn("Checking for new games", io.text())
@@ -286,6 +310,7 @@ class Journey(Base):
 
     def test_the_desktop_icon_failing_does_not_spoil_a_finished_setup(self):
         self.m_desktop.side_effect = BnetSteamError("no desktop")
+        self.up_to_date()
         io = FakeIO()
         wizard.run(self.env, io)
         self.assertIn("Everything is up to date", io.text())
@@ -297,10 +322,6 @@ class Removal(Base):
         p = mock.patch.object(wizard, "battlenet_running", return_value=False)
         self.running = p.start()
         self.addCleanup(p.stop)
-        for name in ("ensure_art", "ensure_launcher_art"):      # offline: art is not what is tested
-            q = mock.patch.object(cli.art, name, return_value=("", []))
-            q.start()
-            self.addCleanup(q.stop)
         self.fs.add_game("w2bn", "w2", "Warcraft II", "Warcraft II Battle.net Edition", "Warcraft II BNE.exe")
         wizard.run(self.env, FakeIO(confirms=[True]))             # a finished setup
 

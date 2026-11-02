@@ -190,7 +190,8 @@ def stop_steam(timeout=90):
 
 
 def start_steam():
-    subprocess.Popen(["steam"], start_new_session=True,
+    # not attached to our terminal's keyboard, so it can never swallow what the person types
+    subprocess.Popen(["steam"], start_new_session=True, stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 

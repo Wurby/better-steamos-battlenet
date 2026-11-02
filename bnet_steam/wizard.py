@@ -176,12 +176,15 @@ def add_games(env, io, cli, step, done=()):
 
     plan = []
     heard = lambda kind, name: plan.append((kind, name))
-    io.run("Looking for your Battle.net games...", lambda: cli.cmd_sync(
+    # go by the count the command reports, not by the names it listed: the Battle.net shortcut's
+    # own artwork and settings are changes too, even when there is no game to name
+    pending = io.run("Looking for your Battle.net games...", lambda: cli.cmd_sync(
         env, cli.make_args(dry_run=True, learn=False), heard))
     new = [n for k, n in plan if k == "new"]
     changed = [n for k, n in plan if k == "update"]
+    own = any(k == "launcher" for k, _ in plan)
     gone = [n for k, n in plan if k == "gone"]
-    if not (new or changed or gone):
+    if not (pending or gone):
         io.good("Everything is up to date")
         return 0
     for title, names in (("Adding", new), ("Updating", changed)):
@@ -189,12 +192,16 @@ def add_games(env, io, cli, step, done=()):
             io.say(f"{title}:")
             for n in names:
                 io.say("+ " + n if title == "Adding" else "~ " + n, indent=4)
+    if own:
+        io.say("Setting up Battle.net's own artwork and settings.")
     prune = False
     if gone:
         names = ", ".join(gone)
         prune = io.confirm(f"{names}: no longer installed. Remove the Steam shortcut? "
                            "(Your Battle.net install is not affected.)", default=False)
-    if (new or changed) and not io.confirm("Add these to Steam now? Steam will close and reopen."):
+    # the first-time setup was agreed to on the welcome screen; later visits ask each time
+    if pending and not step and not io.confirm(
+            "Add these to Steam now? Steam will close and reopen."):
         io.blank()
         io.say("Okay, nothing was changed.")
         return None
