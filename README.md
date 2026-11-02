@@ -57,10 +57,13 @@ you have uninstalled.
 **Updating:** paste the same line from step 2 again. Your Battle.net install, games and settings
 are kept.
 
-**Removing it:** delete the shortcuts it added in Steam (right-click, Manage, Remove non-Steam
-game) and the desktop icon. Your Battle.net install is kept in `~/.local/share/bnet-steam/`;
-deleting that folder **also deletes Battle.net and every game you downloaded**, so only do that
-if you want them gone.
+**Removing it:** double-click **Battle.net for Steam** and choose **Remove Battle.net from
+Steam**. You can remove just the shortcuts (Battle.net and your games stay on the computer, and you
+can add them back later), or everything: Battle.net, the games you downloaded and their saved
+data, and this program. It tells you the size and asks first. It only removes what it created and
+leaves your other Steam shortcuts and files alone. If you already removed the shortcuts in Steam
+yourself, the same menu offers to clean up what is left. From a terminal:
+`~/.local/bin/bnet-steam uninstall` (shortcuts only) or `... uninstall --everything`.
 
 ## What it does
 1. Downloads the Battle.net installer and adds it to Steam with its **own Wine prefix**
@@ -121,6 +124,7 @@ It never deletes shortcuts, prefixes or game files. Undo the last change with
 | `learn` | Press Play on a game in the launcher once; records how it is started (`--game CODE`) |
 | `launch` | Start the Battle.net shortcut through Steam |
 | `restore` | List or restore backups of Steam's files |
+| `uninstall` | Remove the shortcuts it made from Steam; `--everything` also deletes Battle.net, your games and saves, and this program (`--dry-run` shows what) |
 | `wizard` | Guided setup: works out the next step and does it (what the desktop icon runs) |
 | `desktop` | Add an app-menu entry (and optional desktop icon) for the guided setup |
 

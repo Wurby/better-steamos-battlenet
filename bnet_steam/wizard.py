@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from . import battlenet as bn
-from . import steam, ui
+from . import cleanup, steam, ui
 from .errors import BnetSteamError
 
 STEPS = 4
@@ -78,10 +78,16 @@ def run(env, io=None, installer_wait=3600, running=battlenet_running, verbose=Fa
 def _run(env, io, installer_wait, running):
     from . import cli          # late: cli imports this module's command
     st, entry = stage(env)
+    plan = cleanup.plan(env, steam.load_shortcuts(env)["shortcuts"], cli.load_state(env))
+    chose = False               # picking "go" from the menu already says yes to starting
+    if st != "install" or cleanup.set_up_before(env, plan):
+        if menu(env, io, cli, st, plan) != "go":
+            return
+        chose = True
     first_time = st != "sync"
     done = []                  # what earlier steps achieved, shown at the top of later screens
 
-    if first_time and st == "install":
+    if st == "install" and not chose:
         io.screen("Welcome")
         io.say(WELCOME)
         io.blank()
@@ -210,3 +216,75 @@ def teach(env, io, cli, state, prefix, game):
         io.good(f"Got it: I will remember how to start {game['name']}")
     else:
         io.note(f"Skipped {game['name']}; its shortcut will use a guess")
+
+
+def menu(env, io, cli, st, plan):
+    """Offered once Battle.net has been set up before: carry on, take it away again, or quit.
+    Returns "go" to carry on; anything else means this run is over."""
+    io.screen("Welcome back")
+    go = {"sync": "Check for new games", "install": "Set up Battle.net again"}.get(
+        st, "Carry on setting up Battle.net")
+    away = "Remove Battle.net from Steam..." if plan.shortcuts else \
+        "Clean up what is left on this computer..."
+    pick = io.choose("What would you like to do?", [go, away, "Quit"])
+    if pick == 0:
+        return "go"
+    if pick == 1:
+        remove(env, io, cli, plan)
+    return "done"
+
+
+def remove(env, io, cli, plan, running=None):
+    running = running or battlenet_running
+    io.screen("Remove Battle.net")
+    size = io.run("Checking what is installed...",
+                  lambda: cleanup.tree_size(env.work) if plan.data_exists else 0)
+    if plan.shortcuts:
+        io.say("In Steam: " + ", ".join(n for _, n in plan.shortcuts))
+    if plan.data_exists:
+        io.say(f"On this computer: Battle.net, your games and this program "
+               f"({cleanup.human(size)})")
+    io.blank()
+    options = []
+    if plan.shortcuts:
+        io.say("Shortcuts only: Battle.net and your games stay on this computer, and you can "
+               "add them back to Steam any time.")
+        options.append("Remove the shortcuts from Steam only")
+        io.blank()
+    io.say("Everything: also deletes Battle.net, your games and their saved data, and this "
+           "program. This cannot be undone.")
+    options += ["Remove everything", "Go back"]
+    pick = io.choose("What should I remove?", options, default=len(options) - 1)
+    if pick == len(options) - 1:
+        return
+    everything = options[pick] == "Remove everything"
+    if everything:
+        if running():
+            io.blank()
+            io.box("Battle.net is still open. Close it, then run this again.")
+            return
+        if not io.confirm("Delete Battle.net, your games and their saved data for good? "
+                          "Saves that are not stored online will be lost.", default=False):
+            io.blank()
+            io.say("Okay, nothing was changed.")
+            return
+    io.screen("Removing everything" if everything else "Removing from Steam")
+
+    def work():
+        count = cli.cmd_uninstall(env, cli.make_args(yes=True, everything=everything))
+        if everything:
+            io.log_path = None              # the data folder is gone; do not recreate it
+        return count
+
+    io.run("Removing..." if not plan.shortcuts else "Updating Steam...", work, PROGRESS)
+    io.screen("All removed" if everything else "Removed from Steam")
+    if plan.shortcuts:
+        io.good("Battle.net and your games are gone from your Steam library")
+    if everything:
+        io.good("Battle.net, your games and this program are gone from this computer")
+        io.blank()
+        io.say("Thanks for trying it.")
+    else:
+        io.blank()
+        io.say("Battle.net and your games are still on this computer. Double-click "
+               "\"Battle.net for Steam\" any time to add them back.")

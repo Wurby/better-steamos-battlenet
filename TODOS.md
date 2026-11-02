@@ -29,7 +29,8 @@
 - [ ] Run the one-line install from GitHub on a genuinely fresh machine/account (only tested here
       against a local tarball, in temp homes and on the owner's already-set-up machine)
 - [ ] The wizard's first-time path (install -> installer -> switch) has only been run with fakes
-- [ ] An uninstall command (README documents the manual steps)
+- [x] An uninstall command (menu in the icon, and `uninstall [--everything]`). Not yet run for
+      real on the owner's machine: only tested against fakes in temp homes
 - [ ] Pin the installer to a release tag instead of `main` once there are releases
 
 ## Later

@@ -9,15 +9,17 @@ from bnet_steam import battlenet as bn
 from bnet_steam import cli, steam, ui, wizard
 from bnet_steam.errors import BnetSteamError
 
-from .helpers import FakeSteam
+from .helpers import FakeSteam, fake_home
 
 
 class FakeIO(ui.Terminal):
     """Stands in for the person at the terminal: a real (plain, non-animated) Terminal writing
     to memory, with scripted answers."""
 
-    def __init__(self, confirms=(True,), on_wait=None, wait_result=True, verbose=False):
+    def __init__(self, confirms=(True,), on_wait=None, wait_result=True, verbose=False,
+                 choices=()):
         super().__init__(verbose, out=io.StringIO())
+        self.choices, self.menus = list(choices), []
         self.confirms, self.on_wait, self.wait_result = list(confirms), on_wait, wait_result
         self.asked, self.waits = [], 0
 
@@ -25,6 +27,11 @@ class FakeIO(ui.Terminal):
         self.asked.append(prompt)
         self.say(prompt)
         return self.confirms.pop(0)
+
+    def choose(self, prompt, options, default=0):
+        self.menus.append(options)
+        self.say(prompt + " " + " / ".join(options))
+        return self.choices.pop(0) if self.choices else default
 
     def wait_for(self, condition, seconds, message, poll=3, on_enter=None):
         self.waits += 1
@@ -42,6 +49,7 @@ class Base(unittest.TestCase):
         self.fs = FakeSteam()
         self.addCleanup(self.fs.cleanup)
         self.env = self.fs.env
+        self.home = fake_home(self, self.fs)
         for name, kw in (("steam_running", {"return_value": False}), ("stop_steam", {}),
                          ("start_steam", {})):
             p = mock.patch.object(steam, name, **kw)
@@ -278,6 +286,105 @@ class Journey(Base):
         io = FakeIO()
         wizard.run(self.env, io)
         self.assertIn("Everything is up to date", io.text())
+
+
+class Removal(Base):
+    def setUp(self):
+        super().setUp()
+        p = mock.patch.object(wizard, "battlenet_running", return_value=False)
+        self.running = p.start()
+        self.addCleanup(p.stop)
+        for name in ("ensure_art", "ensure_launcher_art"):      # offline: art is not what is tested
+            q = mock.patch.object(cli.art, name, return_value=("", []))
+            q.start()
+            self.addCleanup(q.stop)
+        self.fs.add_game("w2bn", "w2", "Warcraft II", "Warcraft II Battle.net Edition", "Warcraft II BNE.exe")
+        wizard.run(self.env, FakeIO(confirms=[True]))             # a finished setup
+
+    def names(self):
+        return [e["appname"] for e in self.fs.shortcuts().values()]
+
+    def test_someone_who_has_set_up_before_gets_a_menu(self):
+        io = FakeIO(choices=[0], confirms=[])
+        wizard.run(self.env, io)
+        self.assertIn("Welcome back", io.text())
+        self.assertEqual(io.menus[0][0], "Check for new games")
+        self.assertIn("Remove Battle.net from Steam...", io.menus[0])
+
+    def test_a_brand_new_user_is_not_offered_removal(self):
+        self.fresh()
+        shutil.rmtree(self.env.work, ignore_errors=True)
+        io = FakeIO(confirms=[False])
+        wizard.run(self.env, io)
+        self.assertNotIn("Welcome back", io.text())
+        self.assertEqual(io.menus, [])
+
+    def test_quit_changes_nothing_and_checks_nothing(self):
+        before = self.env.shortcuts_path.read_bytes()
+        with mock.patch.object(cli, "cmd_sync") as sync:
+            wizard.run(self.env, FakeIO(choices=[2], confirms=[]))
+        sync.assert_not_called()
+        self.assertEqual(self.env.shortcuts_path.read_bytes(), before)
+
+    def test_removing_only_the_shortcuts_keeps_battlenet_and_the_games(self):
+        io = FakeIO(choices=[1, 0], confirms=[])
+        wizard.run(self.env, io)
+        self.assertEqual(self.names(), ["My Emulator"])
+        self.assertTrue(self.fs.prefix.exists())
+        self.assertIn("still on this computer", io.text())
+        self.assertIn("Removed from Steam", io.text())
+
+    def test_the_removal_screen_says_what_will_go_before_asking(self):
+        io = FakeIO(choices=[1, 2], confirms=[])               # look, then go back
+        wizard.run(self.env, io)
+        text = io.text()
+        self.assertIn("In Steam: Battle.net, Warcraft II Battle.net Edition", text)
+        self.assertIn("This cannot be undone", text)
+        self.assertEqual(len(self.names()), 3)
+
+    def test_removing_everything_needs_a_yes_and_leaves_nothing_behind(self):
+        log = self.env.work / "logs" / "wizard-last.log"
+        io = FakeIO(choices=[1, 1], confirms=[True])
+        io.log_path = log
+        wizard.run(self.env, io)
+        self.assertFalse(self.env.work.exists())                # and the log did not recreate it
+        self.assertEqual(self.names(), ["My Emulator"])
+        self.assertIn("All removed", io.text())
+        self.assertTrue(io.asked[0].startswith("Delete Battle.net"))
+
+    def test_saying_no_to_removing_everything_changes_nothing(self):
+        before = self.env.shortcuts_path.read_bytes()
+        io = FakeIO(choices=[1, 1], confirms=[False])
+        wizard.run(self.env, io)
+        self.assertEqual(self.env.shortcuts_path.read_bytes(), before)
+        self.assertTrue(self.fs.prefix.exists())
+        self.assertIn("nothing was changed", io.text())
+
+    def test_battlenet_being_open_stops_a_full_removal_before_asking(self):
+        self.running.return_value = True
+        io = FakeIO(choices=[1, 1], confirms=[])
+        wizard.run(self.env, io)
+        self.assertIn("still open", io.text())
+        self.assertEqual(io.asked, [])
+        self.assertTrue(self.fs.prefix.exists())
+
+    def test_leftovers_can_be_cleaned_after_the_shortcuts_were_removed_in_steam(self):
+        self.fs.write_shortcuts({"0": self.fs.other})
+        io = FakeIO(choices=[1, 0], confirms=[True])
+        wizard.run(self.env, io)
+        self.assertIn("Clean up what is left on this computer...", io.menus[0])
+        self.assertEqual(io.menus[1][0], "Remove everything")    # no shortcuts-only choice
+        self.assertFalse(self.env.work.exists())
+
+    def test_after_removing_shortcuts_the_setup_can_be_run_again_quickly(self):
+        wizard.run(self.env, FakeIO(choices=[1, 0], confirms=[]))
+        self.installer_file()
+        io = FakeIO(choices=[0], confirms=[True])
+        wizard.run(self.env, io, running=lambda: False)
+        entry = self.bnet()
+        self.assertTrue(entry["exe"].strip('"').endswith("Battle.net.exe"))
+        self.assertIn("Warcraft II Battle.net Edition", self.names())
+        self.assertEqual(io.waits, 0)                           # Battle.net was still installed
 
 
 class BattlenetRunning(unittest.TestCase):

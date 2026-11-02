@@ -52,7 +52,7 @@ def args(**kw):
     """argparse-style namespace with safe defaults for every command."""
     base = dict(dry_run=False, yes=True, start_steam=False, no_art=True, proton=None,
                 proton_log=None, seconds=1, file=None, latest=False, on_desktop=False,
-                learn=None, game=None, prune=None, handheld_fix=None)
+                learn=None, game=None, prune=None, handheld_fix=None, everything=False)
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -169,3 +169,19 @@ def build_pe(images, group_id=1, dib=False):
     sec = b".rsrc\0\0\0" + struct.pack("<IIII", len(rsrc), rva, len(rsrc), 0x400) + b"\0" * 16
     head = b"MZ" + b"\0" * 58 + struct.pack("<I", 64) + b"PE\0\0" + coff + opt + sec
     return head + b"\0" * (0x400 - len(head)) + rsrc
+
+
+def fake_home(case, fs):
+    """Point the home folder and Desktop at a throwaway one so nothing real is read or removed.
+    Returns it."""
+    from unittest import mock
+    from bnet_steam import cleanup
+    home = fs.tmp / "home"
+    (home / ".local/bin").mkdir(parents=True)
+    (home / ".local/share/applications").mkdir(parents=True)
+    (home / "Desktop").mkdir()
+    for p in (mock.patch.object(Path, "home", return_value=home),
+              mock.patch.object(cleanup, "desktop_dir", return_value=home / "Desktop")):
+        p.start()
+        case.addCleanup(p.stop)
+    return home

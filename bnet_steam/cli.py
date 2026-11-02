@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__, art, learn, steam, vdf, wizard, wrapper
+from . import __version__, art, cleanup, learn, steam, vdf, wizard, wrapper
 from . import battlenet as bn
 from .errors import BnetSteamError
 
@@ -20,7 +20,8 @@ def make_args(**kw):
     code (the wizard) the same way the command line would."""
     base = dict(dry_run=False, yes=False, start_steam=False, no_art=False, proton=None,
                 proton_log=None, seconds=300, file=None, latest=False, on_desktop=False,
-                learn=None, game=None, prune=None, handheld_fix=None, verbose=False)
+                learn=None, game=None, prune=None, handheld_fix=None, verbose=False,
+                everything=False)
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -432,12 +433,7 @@ def cmd_desktop(env, args, quiet=False):
     targets = [apps / "bnet-steam.desktop"]
     desktop_dir = None
     if args.on_desktop:
-        try:
-            d = subprocess.run(["xdg-user-dir", "DESKTOP"], capture_output=True,
-                               text=True).stdout.strip()
-        except OSError:                                       # xdg-user-dir is not installed
-            d = ""
-        desktop_dir = Path(d or Path.home() / "Desktop")
+        desktop_dir = cleanup.desktop_dir()
         targets.append(desktop_dir / "Battle.net for Steam.desktop")
     for t in targets:
         t.parent.mkdir(parents=True, exist_ok=True)        # a fresh account may have no Desktop
@@ -453,6 +449,57 @@ def cmd_desktop(env, args, quiet=False):
                 old.unlink()
         except OSError:
             pass
+
+
+def cmd_uninstall(env, args):
+    """Remove the Steam shortcuts we made; with --everything also Battle.net, the games, their
+    saves, this program and its icons. Returns what was found."""
+    data = steam.load_shortcuts(env, strict=True)
+    state = load_state(env)
+    plan = cleanup.plan(env, data["shortcuts"], state)
+    if plan.empty():
+        print("nothing to remove")
+        return plan
+    for appid, name in plan.shortcuts:
+        print(f"  shortcut {name} appid={appid}")
+    if args.everything:
+        for f in plan.art:
+            print(f"  art      {f}")
+        for f in plan.extras:
+            print(f"  file     {f}")
+        if plan.data_exists:
+            print(f"  folder   {env.work} ({cleanup.human(cleanup.tree_size(env.work))}: "
+                  "Battle.net, your games and their saves)")
+    if args.dry_run:
+        print("[dry-run] nothing removed")
+        return plan
+    if args.everything:
+        cleanup.check_data_dir(env)
+        if wizard.battlenet_running():
+            raise BnetSteamError("Battle.net is still open; close it first")
+        steam.confirm("This permanently deletes Battle.net, the games installed through it and "
+                      "their saved data from this computer. Continue?", args.yes)
+    if plan.shortcuts:
+        summary = f"Remove {len(plan.shortcuts)} Battle.net shortcut(s) from Steam."
+        with steam.write_session(env, summary, args.yes, args.start_steam) as s:
+            sdata = s.load_shortcuts()
+            drop = plan.appids
+            kept = [e for e in sdata["shortcuts"].values() if e["appid"] not in drop]
+            sdata["shortcuts"] = {str(i): e for i, e in enumerate(kept)}
+            cfg = s.read_config()
+            for appid in drop:
+                cfg = vdf.remove_compat_tool(cfg, appid)
+            s.save_shortcuts(sdata)
+            s.save_config(cfg)
+        print(f"removed {len(plan.shortcuts)} shortcut(s) from Steam")
+    if args.everything:
+        cleanup.delete_art(plan.art)
+        cleanup.delete_everything(env, plan)
+        print("removed Battle.net, its games and this program")
+    else:
+        state["games"] = {}                 # nothing of ours is in Steam any more
+        save_state(env, state)
+    return plan
 
 
 def cmd_wizard(env, args):
@@ -506,6 +553,10 @@ def build_parser():
     p = sub.add_parser("restore", parents=[write], help="list or restore Steam file backups")
     p.add_argument("file", nargs="?", help="backup file to restore")
     p.add_argument("--latest", action="store_true", help="restore the newest backup of each file")
+    p = sub.add_parser("uninstall", parents=[write],
+                       help="remove the Battle.net shortcuts from Steam (--everything: all of it)")
+    p.add_argument("--everything", action="store_true",
+                   help="also delete Battle.net, your games and their saves, and this program")
     sub.add_parser("wizard", help="guided setup: works out the next step and does it")
     p = sub.add_parser("desktop", help="add an app-menu entry (and desktop icon) for the guided setup")
     p.add_argument("--on-desktop", action="store_true", help="also put an icon on the desktop")
@@ -515,6 +566,7 @@ def build_parser():
 COMMANDS = {"status": cmd_status, "download": cmd_download, "install": cmd_install,
             "repoint": cmd_repoint, "sync": cmd_sync, "learn": cmd_learn,
             "launch": cmd_launch, "restore": cmd_restore, "desktop": cmd_desktop,
+            "uninstall": cmd_uninstall,
             "wizard": cmd_wizard}
 
 

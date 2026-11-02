@@ -18,6 +18,7 @@ bnet_steam/
   learn.py      watch the launcher's Play button to record a game's real start command
   pe_icon.py    pull an exe's main icon out of its PE resources (pure Python)
   ui.py         terminal screens (progress, boxes, spinner); hides command output unless -v
+  cleanup.py    uninstall: plan what we created, data-folder safety checks, deletion
   wizard.py     guided setup for non-technical users: what the desktop icon runs
   wrapper.py    run-game.sh: the launch-option wrapper every shortcut runs through (verb swap)
   cli.py        commands and argument parsing
@@ -172,6 +173,18 @@ Output stays plain when not a terminal or `NO_COLOR` is set. Entry points must n
 `sys.path`), so they insert the app folder explicitly. `install.sh` validates a download before it
 replaces the installed copy and never touches the data dir (prefix, backups, state). Keep it short
 and readable: users are told to read it.
+
+## Uninstall
+`uninstall` removes only what we can show we created: the launcher shortcut and the game shortcuts
+in `state.json`, their Steam config entries (via `write_session`, like every Steam edit), and with
+`--everything` their art, the data folder, our command and icons. Never the user's other
+shortcuts or art. `check_data_dir` refuses home (or a parent), `/`, anything overlapping the Steam
+folder, or a folder with none of our marker files, and each rule has its own test (mutation
+checked: put a marker in the bad folder so the marker rule can't be what stops it). Deletion
+happens only after the Steam edit succeeded, never while Battle.net is running, and the wizard
+must not write into the data folder afterwards (it clears `io.log_path`). The icon's menu appears
+once a setup has happened (a shortcut, a prefix or `state.json`). Tests must use `fake_home` so
+nothing real is read or deleted.
 
 ## Conventions
 - Match the surrounding style; comments explain *why*, not *what*.

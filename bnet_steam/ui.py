@@ -133,6 +133,21 @@ class Terminal:
         ans = input("  " + self.paint(f"[{hint}] ", ACCENT)).strip().lower()
         return default if not ans else ans in ("y", "yes")
 
+    def choose(self, prompt, options, default=0):
+        """Numbered menu; returns the index picked (a bare Enter picks `default`)."""
+        self.blank()
+        for line in textwrap.wrap(prompt, self.width - 2):
+            self._write("  " + self.paint(line, "1") + "\n")
+        for i, opt in enumerate(options, 1):
+            self._write("    " + self.paint(f"{i}.", ACCENT) + " " + opt + "\n")
+        while True:
+            ans = input("  " + self.paint(f"[1-{len(options)}] ", ACCENT)).strip()
+            if not ans:
+                return default
+            if ans.isdigit() and 1 <= int(ans) <= len(options):
+                return int(ans) - 1
+            self.note(f"Please type a number from 1 to {len(options)}.")
+
     def pause(self, text="Press Enter to continue"):
         input("  " + self.paint(text + " ", DIM))
 
