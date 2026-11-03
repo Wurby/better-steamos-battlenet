@@ -10,6 +10,7 @@ Safety model for every write to shortcuts.vdf / config.vdf:
   6. Steam is restarted if it was running.
 """
 import fcntl
+import json
 import os
 import re
 import shutil
@@ -82,7 +83,11 @@ def most_recent_account(root):
     return None
 
 
-def find_userdir(root, explicit=None):
+def find_userdir(root, explicit=None, ours=None, hint=None):
+    """The Steam account folder to work in. `ours(shortcuts)` says whether a shortcuts dict holds
+    our launcher shortcut; `hint` is the account id we used last. Guessing the account from
+    login order alone can pick a different one than the one we installed into (several
+    accounts on one device), which makes an existing shortcut look missing."""
     ud = root / "userdata"
     if explicit:
         p = ud / str(explicit)
@@ -94,6 +99,14 @@ def find_userdir(root, explicit=None):
         raise BnetSteamError(f"no Steam user found under {ud}; log in to Steam once first")
     if len(users) == 1:
         return users[0]
+    if ours:
+        holding = [p for p in users if _holds(p, ours)]
+        if len(holding) == 1:
+            return holding[0]
+        if holding:
+            users = holding
+    if hint is not None and (ud / str(hint)) in users:
+        return ud / str(hint)
     recent = most_recent_account(root)
     if recent is not None and (ud / str(recent)) in users:
         return ud / str(recent)
@@ -104,15 +117,27 @@ def find_userdir(root, explicit=None):
     return max(users, key=mtime)
 
 
+def _holds(userdir, ours):
+    f = userdir / "config" / "shortcuts.vdf"
+    try:
+        return bool(ours(vdf.loads(f.read_bytes()).get("shortcuts", {})))
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
 def default_work_dir():
     base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local/share")
     return Path(base) / "bnet-steam"
 
 
-def discover(steam_root=None, steam_user=None, data_dir=None):
+def discover(steam_root=None, steam_user=None, data_dir=None, ours=None):
     root = find_root(steam_root)
     work = Path(data_dir).expanduser() if data_dir else default_work_dir()
-    return SteamEnv(root, find_userdir(root, steam_user), work)
+    try:
+        hint = json.loads((work / "state.json").read_text()).get("userdir")
+    except (OSError, ValueError, AttributeError):
+        hint = None
+    return SteamEnv(root, find_userdir(root, steam_user, ours, hint), work)
 
 
 # --- Proton -------------------------------------------------------------------

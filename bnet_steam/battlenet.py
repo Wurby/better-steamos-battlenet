@@ -23,10 +23,21 @@ VERIFIED = {
 DEFAULT_ARGS = "-uid {uid}"     # both verified launches share this form
 
 
-def find_bnet_shortcut(shortcuts):
-    for e in shortcuts.values():
-        exe = os.path.basename(e.get("exe", "").strip('"'))
-        if exe in ("Battle.net-Setup.exe", "Battle.net.exe"):
+def find_bnet_shortcut(shortcuts, appid=None):
+    """Our launcher/installer shortcut. Matched by the appid we recorded when we made it
+    (survives the user renaming it or Steam rewriting the exe), else by exe name
+    (case-insensitive: Steam and Wine do not agree on case), else by its name."""
+    entries = [e for e in shortcuts.values() if isinstance(e, dict)]
+    if appid is not None:
+        for e in entries:
+            if e.get("appid") == appid:
+                return e
+    for e in entries:
+        exe = os.path.basename(e.get("exe", "").strip('"')).lower()
+        if exe in ("battle.net-setup.exe", "battle.net.exe"):
+            return e
+    for e in entries:
+        if e.get("appname") == SHORTCUT_NAME and "bnet-steam" in e.get("LaunchOptions", ""):
             return e
     return None
 

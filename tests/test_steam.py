@@ -47,6 +47,33 @@ class Discovery(unittest.TestCase):
         with self.assertRaises(BnetSteamError):
             steam.find_userdir(self.root, "99")
 
+    def _put_shortcut(self, user, exe="/x/Battle.net-Setup.exe"):
+        e = steam.new_shortcut(5, "Battle.net", exe, "")
+        (self.root / "userdata" / user / "config/shortcuts.vdf").write_bytes(
+            vdf.dumps({"shortcuts": {"0": e}}))
+
+    def test_account_holding_our_shortcut_beats_login_order(self):
+        # account 2 logged in last, but the shortcut lives in account 1
+        from bnet_steam import battlenet as bn
+        (self.root / "config/loginusers.vdf").write_text(LOGINUSERS)
+        self._put_shortcut("1")
+        self.assertEqual(steam.find_userdir(self.root, ours=bn.find_bnet_shortcut).name, "1")
+
+    def test_hint_breaks_a_tie_between_accounts(self):
+        from bnet_steam import battlenet as bn
+        (self.root / "config/loginusers.vdf").write_text(LOGINUSERS)
+        self._put_shortcut("1")
+        self._put_shortcut("2")
+        self.assertEqual(steam.find_userdir(self.root, ours=bn.find_bnet_shortcut, hint=1).name, "1")
+
+    def test_shortcut_found_by_recorded_appid_and_exe_case(self):
+        from bnet_steam import battlenet as bn
+        sc = {"0": steam.new_shortcut(7, "Renamed", "/x/whatever.exe", "")}
+        self.assertIsNone(bn.find_bnet_shortcut(sc))
+        self.assertIs(bn.find_bnet_shortcut(sc, 7), sc["0"])
+        sc = {"0": steam.new_shortcut(8, "B", "/x/BATTLE.NET.EXE", "")}
+        self.assertIs(bn.find_bnet_shortcut(sc), sc["0"])
+
     def test_userdata_zero_is_never_chosen(self):
         import shutil
         shutil.rmtree(self.root / "userdata/1")

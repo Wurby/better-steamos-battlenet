@@ -40,10 +40,20 @@ def save_state(env, state):
     steam.write_atomic(env.work / "state.json", json.dumps(state, indent=2).encode())
 
 
+def no_shortcut_message(env):
+    others = [p.name for p in (env.root / "userdata").iterdir()
+              if p.name.isdigit() and p.name != "0" and p != env.userdir]
+    msg = f"no Battle.net shortcut found for Steam user {env.userdir.name}; run `install` first"
+    if others:
+        msg += (f" (other Steam users here: {', '.join(others)}; if the shortcut is theirs, "
+                "pass --steam-user <id>)")
+    return msg
+
+
 def require_launcher(env, data):
     """(launcher shortcut, its prefix) once the launcher shortcut targets Battle.net.exe."""
-    launcher = bn.find_bnet_shortcut(data["shortcuts"])
-    if not launcher or not launcher["exe"].strip('"').endswith("Battle.net.exe"):
+    launcher = bn.find_bnet_shortcut(data["shortcuts"], load_state(env).get("appid"))
+    if not launcher or not launcher["exe"].strip('"').lower().endswith("battle.net.exe"):
         raise BnetSteamError("the launcher shortcut is not set up yet; run `install`, "
                              "finish the installer, then `repoint`")
     return launcher, bn.prefix_for(env, launcher)
@@ -62,7 +72,7 @@ def cmd_status(env, args):
         print("WARNING        : shortcuts.vdf does not round-trip through our codec; "
               "write commands will refuse to run")
     data = steam.load_shortcuts(env)
-    e = bn.find_bnet_shortcut(data["shortcuts"])
+    e = bn.find_bnet_shortcut(data["shortcuts"], load_state(env).get("appid"))
     if not e:
         print("Stage          : 1 (no Battle.net shortcut yet; run `install`)")
         return
@@ -73,7 +83,7 @@ def cmd_status(env, args):
     num, desc = bn.stage(prefix)
     print(f"Stage          : {num} ({desc})")
     state = load_state(env)
-    if num == 3 and e["exe"].strip('"').endswith("Battle.net-Setup.exe"):
+    if num == 3 and e["exe"].strip('"').lower().endswith("battle.net-setup.exe"):
         print("               : run `repoint` to switch the shortcut to the launcher")
     for g in bn.installed_games(prefix):
         spec = bn.launch_spec(prefix, g, state)
@@ -86,7 +96,7 @@ def cmd_download(env, args):
 
 def cmd_install(env, args):
     data = steam.load_shortcuts(env, strict=True)
-    if bn.find_bnet_shortcut(data["shortcuts"]):
+    if bn.find_bnet_shortcut(data["shortcuts"], load_state(env).get("appid")):
         raise BnetSteamError("a Battle.net shortcut already exists; run `status`")
     tool = steam.pick_proton(env.root, args.proton)
     installer = bn.download_installer(env)
@@ -111,7 +121,7 @@ def cmd_install(env, args):
         s.save_shortcuts(data)
         s.save_config(vdf.set_compat_tool(s.read_config(), appid, tool))
     state = load_state(env)
-    state.update(appid=appid, name=bn.SHORTCUT_NAME, prefix=str(prefix), proton=tool,
+    state.update(appid=appid, userdir=int(env.userdir.name), name=bn.SHORTCUT_NAME, prefix=str(prefix), proton=tool,
                  proton_log=bool(args.proton_log))
     save_state(env, state)
     print("shortcut + compat tool written; launch it from Steam to run the installer")
@@ -119,9 +129,9 @@ def cmd_install(env, args):
 
 def cmd_repoint(env, args):
     data = steam.load_shortcuts(env, strict=True)
-    e = bn.find_bnet_shortcut(data["shortcuts"])
+    e = bn.find_bnet_shortcut(data["shortcuts"], load_state(env).get("appid"))
     if not e:
-        raise BnetSteamError("no Battle.net shortcut; run `install` first")
+        raise BnetSteamError(no_shortcut_message(env))
     launcher = bn.launcher_exe(bn.prefix_for(env, e))
     if not launcher.exists():
         raise BnetSteamError(f"the launcher is not installed yet ({launcher}); finish the "
@@ -366,7 +376,7 @@ def guide_unverified(env, state, prefix, games, args):
 
 
 def cmd_launch(env, args):
-    e = bn.find_bnet_shortcut(steam.load_shortcuts(env)["shortcuts"])
+    e = bn.find_bnet_shortcut(steam.load_shortcuts(env)["shortcuts"], load_state(env).get("appid"))
     if not e:
         raise BnetSteamError("no Battle.net shortcut")
     subprocess.Popen(["steam", f"steam://rungameid/{steam.steam_gameid(e['appid'])}"],
@@ -576,7 +586,8 @@ COMMANDS = {"status": cmd_status, "download": cmd_download, "install": cmd_insta
 def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
-        env = steam.discover(args.steam_root, args.steam_user, args.data_dir)
+        env = steam.discover(args.steam_root, args.steam_user, args.data_dir,
+                             ours=bn.find_bnet_shortcut)
         COMMANDS[args.cmd or "wizard"](env, args)
     except BnetSteamError as e:
         if not getattr(e, "shown", False):        # the guided setup already explained it

@@ -57,7 +57,7 @@ def our_files():
 def plan(env, shortcuts, state):
     p = Plan(data_dir=env.work)
     existing = {e["appid"]: e for e in shortcuts.values()}
-    launcher = bn.find_bnet_shortcut(shortcuts)
+    launcher = bn.find_bnet_shortcut(shortcuts, state.get("appid"))
     if launcher:
         p.shortcuts.append((launcher["appid"], launcher["appname"]))
     for appid in state.get("games", {}).values():
