@@ -74,6 +74,21 @@ class Discovery(unittest.TestCase):
         sc = {"0": steam.new_shortcut(8, "B", "/x/BATTLE.NET.EXE", "")}
         self.assertIs(bn.find_bnet_shortcut(sc), sc["0"])
 
+    def test_capitalised_field_names_are_found_and_kept(self):
+        from bnet_steam import battlenet as bn
+        raw = {"appid": 9, "AppName": "Battle.net", "Exe": '"/x/Battle.net-Setup.exe"',
+               "LaunchOptions": ""}
+        sc = {"0": steam.Entry(raw)}
+        self.assertEqual(sc["0"]["exe"], raw["Exe"])
+        self.assertEqual(bn.find_bnet_shortcut({"0": raw})["appid"], 9)   # plain dict too
+        sc["0"]["exe"] = "new"
+        self.assertEqual(list(sc["0"]), ["appid", "AppName", "Exe", "LaunchOptions"])
+        self.assertEqual(sc["0"]["Exe"], "new")
+
+    def test_an_entry_without_an_exe_is_never_the_launcher(self):
+        from bnet_steam import battlenet as bn
+        self.assertIsNone(bn.find_bnet_shortcut({"0": {"appid": 5, "appname": "Battle.net"}}, 5))
+
     def test_userdata_zero_is_never_chosen(self):
         import shutil
         shutil.rmtree(self.root / "userdata/1")

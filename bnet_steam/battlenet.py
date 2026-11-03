@@ -26,18 +26,21 @@ DEFAULT_ARGS = "-uid {uid}"     # both verified launches share this form
 def find_bnet_shortcut(shortcuts, appid=None):
     """Our launcher/installer shortcut. Matched by the appid we recorded when we made it
     (survives the user renaming it or Steam rewriting the exe), else by exe name
-    (case-insensitive: Steam and Wine do not agree on case), else by its name."""
-    entries = [e for e in shortcuts.values() if isinstance(e, dict)]
+    (case-insensitive: Steam and Wine do not agree on case), else by its name. Field names
+    match case-insensitively too, and an entry without an exe is never returned."""
+    from .steam import Entry         # late: steam does not import this module, keep it so
+    pairs = [(e, Entry(e)) for e in shortcuts.values() if isinstance(e, dict)]
+    pairs = [(e, v) for e, v in pairs if "exe" in v]
     if appid is not None:
-        for e in entries:
-            if e.get("appid") == appid:
+        for e, v in pairs:
+            if v.get("appid") == appid:
                 return e
-    for e in entries:
-        exe = os.path.basename(e.get("exe", "").strip('"')).lower()
-        if exe in ("battle.net-setup.exe", "battle.net.exe"):
+    for e, v in pairs:
+        if os.path.basename(str(v["exe"]).strip('"')).lower() in ("battle.net-setup.exe",
+                                                                    "battle.net.exe"):
             return e
-    for e in entries:
-        if e.get("appname") == SHORTCUT_NAME and "bnet-steam" in e.get("LaunchOptions", ""):
+    for e, v in pairs:
+        if v.get("appname") == SHORTCUT_NAME and "bnet-steam" in str(v.get("LaunchOptions", "")):
             return e
     return None
 

@@ -234,6 +234,28 @@ def steam_gameid(appid):
     return (appid << 32) | 0x02000000
 
 
+class Entry(dict):
+    """A shortcut whose field names match case-insensitively (Steam has written both `exe` and
+    `Exe`, `appname` and `AppName`). Reads and writes keep whatever spelling the file has, so
+    saving never renames a key Steam wrote."""
+
+    def _k(self, key):
+        if isinstance(key, str) and not dict.__contains__(self, key):
+            low = key.lower()
+            for k in dict.keys(self):
+                if isinstance(k, str) and k.lower() == low:
+                    return k
+        return key
+
+    def __getitem__(self, key): return dict.__getitem__(self, self._k(key))
+    def __setitem__(self, key, v): dict.__setitem__(self, self._k(key), v)
+    def __delitem__(self, key): dict.__delitem__(self, self._k(key))
+    def __contains__(self, key): return dict.__contains__(self, self._k(key))
+    def get(self, key, default=None): return dict.get(self, self._k(key), default)
+    def pop(self, key, *a): return dict.pop(self, self._k(key), *a)
+    def setdefault(self, key, default=None): return dict.setdefault(self, self._k(key), default)
+
+
 def load_shortcuts(env, strict=False):
     """Parsed shortcuts.vdf. With strict=True, refuse a file our codec can't
     reproduce byte for byte (so we never write back something altered)."""
@@ -246,6 +268,9 @@ def load_shortcuts(env, strict=False):
         raise BnetSteamError(f"{p} does not round-trip through our VDF codec; refusing to "
                              "modify it. Please report this with a copy of the file.")
     data.setdefault("shortcuts", {})
+    for k, e in data["shortcuts"].items():
+        if isinstance(e, dict):
+            data["shortcuts"][k] = Entry(e)
     return data
 
 
