@@ -6,6 +6,7 @@ one in plain words, one screen per step. Running it again later adds any games y
 installed since.
 """
 import sys
+import time
 from pathlib import Path
 
 from . import battlenet as bn
@@ -39,6 +40,8 @@ DONE = ["To add more games: install them in Battle.net (start \"Battle.net\" fro
         "launcher. Their shortcut opens Battle.net; press Play there."]
 
 
+SETTLE_SECONDS = 30     # how long Battle.net must stay closed before we call the install done
+
 # friendlier wording for what the commands print while they work
 PROGRESS = {"Closing Steam": "Closing Steam...", "backup:": "Backing up your Steam files...",
             "Steam restarted": "Starting Steam again..."}
@@ -59,13 +62,62 @@ def battlenet_running(proc=Path("/proc")):
 
 def stage(env):
     """('install' | 'installer' | 'repoint' | 'sync', shortcut or None)."""
-    entry = bn.find_bnet_shortcut(steam.load_shortcuts(env)["shortcuts"])
+    from . import cli          # late: cli imports this module
+    entry = bn.find_bnet_shortcut(steam.load_shortcuts(env)["shortcuts"],
+                                  cli.load_state(env).get("appid"))
     if entry is None:
         return "install", None
-    if entry["exe"].strip('"').endswith("Battle.net-Setup.exe"):
+    if entry["exe"].strip('"').lower().endswith("battle.net-setup.exe"):
         launcher = bn.launcher_exe(bn.prefix_for(env, entry))
         return ("repoint" if launcher.exists() else "installer"), entry
     return "sync", entry
+
+
+def steam_running(appid, proc=Path("/proc")):
+    """True while Steam shows this shortcut as running: its `reaper SteamLaunch AppId=<id>`
+    process lives for the whole launch session, so it also covers the gap in which the Battle.net
+    installer has exited and its login window has not opened yet."""
+    want = f"AppId={int(appid) & 0xFFFFFFFF}"
+    for f in proc.glob("[0-9]*/cmdline"):
+        try:
+            argv = f.read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if b"SteamLaunch" in argv and want.encode() in argv:
+            return True
+    return False
+
+
+def prefix_in_use(prefix, proc=Path("/proc")):
+    """True while any process runs inside this Wine prefix (installer, launcher, Agent,
+    wineserver, helper). Matches on the environment Steam gave the process, not on its command
+    line, whose format under Proton we cannot count on."""
+    marks = (f"STEAM_COMPAT_DATA_PATH={prefix}".encode(), f"WINEPREFIX={prefix}/pfx".encode())
+    for f in proc.glob("[0-9]*/environ"):
+        try:
+            env = f.read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if any(m in env for m in marks):
+            return True
+    return False
+
+
+class Quiet:
+    """Holds once busy() has been False for `seconds` straight. The Battle.net installer exits
+    and then starts the launcher's login window a moment later; "nothing running right now" is
+    not "finished"."""
+
+    def __init__(self, busy, seconds, clock=time.monotonic):
+        self.busy, self.seconds, self.clock, self.since = busy, seconds, clock, None
+
+    def __call__(self):
+        if self.busy():
+            self.since = None
+            return False
+        if self.since is None:
+            self.since = self.clock()
+        return self.clock() - self.since >= self.seconds
 
 
 def run(env, io=None, installer_wait=3600, running=battlenet_running, verbose=False):
@@ -115,8 +167,11 @@ def _run(env, io, installer_wait, running):
         # finishing (or a launcher mid-login), so wait until Battle.net is installed AND closed.
         if entry is None:
             _, entry = stage(env)
-        launcher = bn.launcher_exe(bn.prefix_for(env, entry))
-        if not launcher.exists() or running():
+        prefix = bn.prefix_for(env, entry)
+        launcher = bn.launcher_exe(prefix)
+        busy = lambda: (steam_running(entry["appid"]) or running()
+                        or prefix_in_use(prefix))
+        if not launcher.exists() or busy():
             io.screen("Install Battle.net", 2, STEPS, done)
             if launcher.exists():
                 io.say("Battle.net is installed but still open. Close it and I will carry on.")
@@ -130,8 +185,9 @@ def _run(env, io, installer_wait, running):
                 io.say("I will carry on by myself once Battle.net is installed and closed. "
                        "Already finished? Press Enter and I will check.")
             io.blank()
+            quiet = Quiet(lambda: not launcher.exists() or busy(), SETTLE_SECONDS)
             ready = io.wait_for(
-                lambda: launcher.exists() and not running(), installer_wait,
+                quiet, installer_wait,
                 "Waiting for Battle.net to finish installing...",
                 on_enter=lambda: io.note("Not yet: Battle.net must be installed and closed."))
             if not ready:

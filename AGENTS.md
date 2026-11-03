@@ -140,6 +140,12 @@ Run: `python3 -m bnet_steam <command>`. Test: `python3 -m unittest discover -s t
   ~3 s after the last one exited. It looks like the game's own shutdown; the cause was not
   isolated.
 
+- Account choice: with several Steam accounts on a device, we pick the one whose `shortcuts.vdf`
+  holds our shortcut, then the account recorded in `state.json` (`userdir`), then the last login.
+  The shortcut is matched by the recorded appid, then exe name (case-insensitive), then name.
+  Unverified on a real multi-account device: this is the suspected cause of "no Battle.net
+  shortcut" while one shows in Steam.
+
 ## Unverified / known gaps
 - `run-game.sh` inside Steam's runtime container: whether it sees the launcher's processes, and
   whether a game started in the container shares a Wine server with a launcher the wrapper
@@ -166,7 +172,10 @@ Blizzard or Valve artwork or trademarks to the repo.
 script runs `wizard`. The wizard works out the stage (install / waiting for the Battle.net installer /
 switch the shortcut / add games), does the next step, and waits until Battle.net is installed AND
 closed before it switches the shortcut, because that restarts Steam and would kill a running
-installer. One screen per step (`ui.Terminal`); the commands' own printed log is captured, saved to
+installer. "Closed" means Steam shows no `reaper SteamLaunch AppId=<shortcut>` process and no process in our prefix (matched by `STEAM_COMPAT_DATA_PATH` in its
+environment) for `SETTLE_SECONDS` straight: the installer exits and the launcher's login window
+opens a moment later (seen by the owner on a Steam Deck). The settle time and the environment match
+are untested on a real device. One screen per step (`ui.Terminal`); the commands' own printed log is captured, saved to
 `logs/wizard-last.log` and shown only with `-v`, so wizard code must never rely on a command's
 stdout being visible or on `input()` inside a captured run (pass `yes=True`; ask via `io.confirm`).
 Output stays plain when not a terminal or `NO_COLOR` is set. Entry points must not depend on the current directory (`python -m` puts cwd first on

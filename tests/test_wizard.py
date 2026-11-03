@@ -46,6 +46,9 @@ class FakeIO(ui.Terminal):
 
 class Base(unittest.TestCase):
     def setUp(self):
+        p = mock.patch.object(wizard, "SETTLE_SECONDS", 0)
+        p.start()
+        self.addCleanup(p.stop)
         self.fs = FakeSteam()
         self.addCleanup(self.fs.cleanup)
         self.env = self.fs.env
@@ -433,6 +436,48 @@ class BattlenetRunning(unittest.TestCase):
         self.add(4, b"/usr/bin/python3\0Battle.net-Setup.exe\0")
         self.add(5, b"/usr/bin/konsole\0")
         self.assertFalse(wizard.battlenet_running(self.proc))
+
+
+class PrefixInUse(BattlenetRunning):
+    def test_any_process_with_our_prefix_counts_whatever_its_command_line(self):
+        self.add(1, b"wineserver\0")
+        (self.proc / "1/environ").write_bytes(b"A=b\0STEAM_COMPAT_DATA_PATH=/d/prefix\0")
+        self.assertTrue(wizard.prefix_in_use(Path("/d/prefix"), self.proc))
+        self.assertFalse(wizard.prefix_in_use(Path("/d/prefix2"), self.proc))   # not a prefix match
+
+    def test_other_prefixes_do_not(self):
+        self.add(2, b"x\0")
+        (self.proc / "2/environ").write_bytes(b"STEAM_COMPAT_DATA_PATH=/other\0")
+        self.assertFalse(wizard.prefix_in_use(Path("/d/prefix"), self.proc))
+
+
+class SteamRunning(BattlenetRunning):
+    def test_reaper_for_that_appid_counts(self):
+        self.add(1, b"reaper\0SteamLaunch\0AppId=3000000001\0--\0proton\0")
+        self.assertTrue(wizard.steam_running(3000000001, self.proc))
+        self.assertTrue(wizard.steam_running(3000000001 - 2**32, self.proc))   # signed form
+        self.assertFalse(wizard.steam_running(42, self.proc))
+
+    def test_a_process_that_merely_mentions_it_does_not(self):
+        self.add(2, b"bash\0-c\0echo AppId=7\0")
+        self.assertFalse(wizard.steam_running(7, self.proc))
+
+
+class QuietWindow(unittest.TestCase):
+    def test_a_short_gap_between_installer_and_login_window_is_not_done(self):
+        t, busy = [0.0], [False]
+        q = wizard.Quiet(lambda: busy[0], 30, clock=lambda: t[0])
+        self.assertFalse(q())                       # closed just now
+        t[0] = 10
+        busy[0] = True                              # the login window opens
+        self.assertFalse(q())
+        busy[0] = False
+        t[0] = 35                                   # 25 s after it closed again
+        self.assertFalse(q())
+        t[0] = 40
+        self.assertFalse(q())
+        t[0] = 66
+        self.assertTrue(q())
 
 
 if __name__ == "__main__":
